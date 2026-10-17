@@ -25,11 +25,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--hz", type=float, default=100)
-    parser.add_argument("--seconds", type=float, default=30)
+    parser.add_argument("--seconds", type=float, default=10)
     parser.add_argument("--list", action="store_true", help="list controllers and exit")
-    parser.add_argument("--simulate", action="store_true", help="test loop without hardware; NOT an input benchmark")
+    parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="test loop without hardware; NOT an input benchmark",
+    )
     args = parser.parse_args()
-    if not math.isfinite(args.hz) or args.hz <= 0 or not math.isfinite(args.seconds) or args.seconds <= 0:
+    if (
+        not math.isfinite(args.hz)
+        or args.hz <= 0
+        or not math.isfinite(args.seconds)
+        or args.seconds <= 0
+    ):
         parser.error("--hz and --seconds must be finite and positive")
 
     pygame = None
@@ -42,23 +51,34 @@ def main():
             pygame.joystick.init()
             # Allow only lifecycle events; button states are polled below.
             pygame.event.set_blocked(None)
-            pygame.event.set_allowed([pygame.QUIT, pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED])
+            pygame.event.set_allowed(
+                [pygame.QUIT, pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED]
+            )
             count = pygame.joystick.get_count()
             for index in range(count):
                 device = pygame.joystick.Joystick(index)
-                print(f"[{index}] {device.get_name()} ({device.get_numbuttons()} buttons)")
+                print(
+                    f"[{index}] {device.get_name()} ({device.get_numbuttons()} buttons)"
+                )
             if args.list:
                 return
             if not 0 <= args.index < count:
-                raise RuntimeError("Selected controller unavailable. Plug it in and run --list.")
+                raise RuntimeError(
+                    "Selected controller unavailable. Plug it in and run --list."
+                )
             joystick = pygame.joystick.Joystick(args.index)
             if joystick.get_numbuttons() < 12:
                 raise RuntimeError("Selected controller exposes fewer than 12 buttons.")
             get_button = joystick.get_button
 
-        print(f"Running at {args.hz:g} Hz for {args.seconds:g}s. Press buttons; Ctrl+C stops.")
-        print("SIMULATED INPUT: timings do not measure controller acquisition." if args.simulate else
-              "Read timing includes event pump, disconnect checks, 12 reads and mask packing.")
+        print(
+            f"Running at {args.hz:g} Hz for {args.seconds:g}s. Press buttons; Ctrl+C stops."
+        )
+        print(
+            "SIMULATED INPUT: timings do not measure controller acquisition."
+            if args.simulate
+            else "Read timing includes event pump, disconnect checks, 12 reads and mask packing."
+        )
         period = 1 / args.hz
         start = time.perf_counter()
         deadline = start
@@ -87,8 +107,13 @@ def main():
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT:
                             raise KeyboardInterrupt
-                        if event.type == pygame.JOYDEVICEREMOVED and event.instance_id == joystick.get_instance_id():
-                            raise RuntimeError("Controller disconnected; stopped sending. Reconnect and restart.")
+                        if (
+                            event.type == pygame.JOYDEVICEREMOVED
+                            and event.instance_id == joystick.get_instance_id()
+                        ):
+                            raise RuntimeError(
+                                "Controller disconnected; stopped sending. Reconnect and restart."
+                            )
                     mask = 0
                     for button in range(12):
                         mask |= int(get_button(button)) << button
@@ -98,8 +123,10 @@ def main():
                 # Console output stays outside the acquisition measurement.
                 now = time.perf_counter()
                 if now >= next_report:
-                    print(f"B0..B11={''.join(str((mask >> b) & 1) for b in range(12))}  "
-                          f"mask=0x{mask:03x}  latest read={read_us[-1]:.1f} us")
+                    print(
+                        f"B0..B11={''.join(str((mask >> b) & 1) for b in range(12))}  "
+                        f"mask=0x{mask:03x}  latest read={read_us[-1]:.1f} us"
+                    )
                     next_report = now + 1
                 last_mask = mask
                 deadline += period
@@ -113,16 +140,26 @@ def main():
         finally:
             if read_us:
                 print(f"\nSamples: {len(read_us)}; skipped scheduled ticks: {skipped}")
-                for label, values, unit in [("Input acquisition", read_us, "us"),
-                                             ("Acquisition + send hook", work_us, "us"),
-                                             ("Wake lateness", lateness_us, "us"),
-                                             ("Tick interval", intervals_ms, "ms")]:
+                for label, values, unit in [
+                    ("Input acquisition", read_us, "us"),
+                    ("Acquisition + send hook", work_us, "us"),
+                    ("Wake lateness", lateness_us, "us"),
+                    ("Tick interval", intervals_ms, "ms"),
+                ]:
                     if values:
-                        print(f"{label}: median={percentile(values, .5):.2f}, "
-                              f"p95={percentile(values, .95):.2f}, p99={percentile(values, .99):.2f}, "
-                              f"max={max(values):.2f} {unit}")
-                print(f"Reads >=500 us: {sum(value >= 500 for value in read_us)}/{len(read_us)}")
-                print(f"Last button mask: 0x{last_mask:03x}" if last_mask is not None else "No completed sends")
+                        print(
+                            f"{label}: median={percentile(values, .5):.2f}, "
+                            f"p95={percentile(values, .95):.2f}, p99={percentile(values, .99):.2f}, "
+                            f"max={max(values):.2f} {unit}"
+                        )
+                print(
+                    f"Reads >=500 us: {sum(value >= 500 for value in read_us)}/{len(read_us)}"
+                )
+                print(
+                    f"Last button mask: 0x{last_mask:03x}"
+                    if last_mask is not None
+                    else "No completed sends"
+                )
     finally:
         if pygame is not None:
             pygame.quit()

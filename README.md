@@ -5,8 +5,8 @@ Python 3.12 or another Python version supported by pygame:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python gamepad_probe.py --list
-.\.venv\Scripts\python gamepad_probe.py --index 0 --hz 100 --seconds 30
+.\.venv\Scripts\python experiments/e1_gamepad_probe.py --list
+.\.venv\Scripts\python experiments/e1_gamepad_probe.py --index 0 --hz 100 --seconds 30
 ```
 
 Hold each button for at least one second to see its position in the once-per-second
@@ -52,9 +52,30 @@ snapshot or a native HID reader after examining the board's HID report descripto
 A blocking HID read must not run in the 100 Hz control loop. Faster software cannot
 make the board produce USB reports faster.
 
-`python gamepad_probe.py --simulate --seconds 2` checks loop execution without
+`python experiments/e1_gamepad_probe.py --simulate --seconds 2` checks loop execution without
 pygame or hardware; it is explicitly not a controller performance benchmark.
 
 References: [Pygame joystick](https://www.pygame.org/docs/ref/joystick.html),
 [Pygame events](https://www.pygame.org/docs/ref/event.html),
 [SDL event pump](https://wiki.libsdl.org/SDL2/SDL_PumpEvents).
+
+## E2: minimal 100 Hz controller
+
+```powershell
+.\.venv\Scripts\python experiments/e2_gamepad_controller.py --index 0
+```
+
+E2 continuously polls the first 12 buttons at a target rate of 100 Hz and prints
+`B0..B11=000000000000` every tenth read (about ten prints per second). B0 is the
+leftmost digit; 1 means pressed and 0 means released. Press Ctrl+C to stop.
+
+There are no performance measurements, statistics, game rules, or device output.
+The clock is used only to schedule the 10 ms loop. Python/Windows scheduling is
+not hard real time. If work overruns, the loop resumes after a fresh period rather
+than doing catch-up reads. A `connected` boolean tracks joystick availability.
+The loop keeps running with all-zero buttons while disconnected and retries the
+selected controller index each tick, including when started without a controller.
+Reconnection resumes button reads automatically. With multiple controllers,
+indexes may change after unplugging; `--index` selects the current index, not a
+permanent device identity. Controllers must expose at least 12 buttons.
+Every function includes explanatory comments. E1 remains the timing probe.
