@@ -1,0 +1,4 @@
+   0.375 s | Zeroed the force/torque sensor at point A
+   0.375 s | Reached point A; starting TCP pose: [-0.48219086502574393, 0.17382142692105942, 0.6410925787937937, -2.221411151097913, 2.2183904234428566, 0.005239718026950408]
+  13.656 s | Stopped force mode: radial XY travel reached 10 mm; down=8.84 mm, XY=10.00 mm
+  14.156 s | Returned to point A

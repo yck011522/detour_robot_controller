@@ -1,0 +1,3 @@
+   0.157 s | Reached point A; starting TCP pose: [-0.4821758092896123, 0.17383356914489861, 0.6411242369704865, -2.221425425342999, 2.218427726812376, 0.0052895399692823196]
+   1.578 s | Stopped force mode: radial XY travel reached 10 mm; down=13.68 mm, XY=10.00 mm
+   2.125 s | Returned to point A
