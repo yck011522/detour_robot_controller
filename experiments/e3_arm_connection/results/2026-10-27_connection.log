@@ -1,0 +1,12 @@
+RTDE connection test run on 2026-10-27.
+Captured output from the completed test; the robot was not contacted again to save this log.
+
+Connecting to 192.168.0.10 using RTDE receive only...
+Connected: True
+Controller timestamp (s): 8496.845
+Robot mode (raw): 7
+Safety mode (raw): 1
+Joint positions (rad): [3.1375927925109863, -1.5748702488341273, -2.879077911376953, -1.8347794018187464, 3.1489548683166504, 3.1391613483428955]
+TCP pose (m, rotation vector rad): [-0.14875542400043876, 0.05851215717416723, 0.12054514893867307, -0.01000760997328994, -2.2210391318916294, 2.21903268561169]
+Later controller timestamp (s): 8497.045
+RTDE receive connection closed.

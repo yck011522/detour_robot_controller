@@ -1,4 +1,50 @@
-# DIY gamepad input probe
+# Detour robot controller
+
+## Python environment setup (Windows PowerShell)
+
+Install 64-bit Python 3.12 on each computer. The development environment was
+created with Python 3.12.10 and verified with ur_rtde 1.6.5 and pygame 2.6.1.
+Python is installed separately; the virtual environment holds project packages.
+
+From the project root, create the environment and install the dependencies:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+These commands use the environment's interpreter directly, so activation is not
+required. Select `.venv\Scripts\python.exe` as the Python interpreter in your IDE.
+For an interactive terminal, optional activation is:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+# Leave the activated environment when finished.
+deactivate
+```
+
+Verify the installation without connecting to any robot or joystick:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -c "import rtde_control, rtde_receive, rtde_io, pygame; from importlib.metadata import version; print('ur_rtde:', version('ur_rtde')); print('pygame:', version('pygame'))"
+```
+
+On the main control computer, install the same Python version, clone or copy this
+project, and repeat the setup commands. Recreate `.venv` on each computer instead
+of copying it. The environment is already excluded from Git by `.gitignore`;
+`requirements.txt` records the project dependencies, including the pinned
+ur_rtde version.
+
+The package name is `ur_rtde`; its Python modules include `rtde_control`,
+`rtde_receive`, and `rtde_io`. The robotic arm address is configured in
+`config/address.ini` under `[robotic_arm]` as `host = 192.168.0.10`.
+Installation and import verification do not establish a robot connection.
+
+Library documentation: [ur_rtde](https://sdurobotics.gitlab.io/ur_rtde/).
+
+## DIY gamepad input probe
 
 Python 3.12 or another Python version supported by pygame:
 
