@@ -1,0 +1,51 @@
+# Development milestones and hardware-in-the-loop acceptance gates
+
+**Approach:** small, working PC-controller increments tested against real devices wherever feasible. A simulation framework is NOT a prerequisite. Allow per-subsystem synthetic inputs and dry-run outputs, integrated into the same production application. Each milestone starts with a short review/plan approved by the user and finishes with reproducible evidence.
+
+## Hardware already available (at planning time)
+- Windows PC; tested USB/BLE modem; **one built car** with E15 firmware (remaining car-controller availability still to confirm); the **USB HID gamepad tested in E2**, with four three-button mappings in `config/address.ini`; **all four monitors and H.264 camera streams working in E9**; UR10e and its tested URCap/RS-485 screw-driving tool.
+- STILL TO CONFIRM / COMPLETE: remaining cars and full physical button validation; complete track with ~300 NFC tags; final board installation hardware and target poses, full stall-engagement tests. Four working video feeds do not establish four completed car controllers.
+- Robot should remain **motion dry-run** through car navigation/reservation and scheduler development. Real screw actuator can be tested independently with safe bounded commands. No live assembly with placeholder positions.
+
+## M0 — Repo audit, agreement on architecture (no modifications)
+**Agent tasks:** inspect current E15 car source, official protocol Markdown, modem behavior, E2 HID input and existing UR/E9 code; identify actual tested versus intended features. Validate the immutable PC–modem–BLE–car protocol, including World State `<HB4B` (7 bytes) and corrected Robot State `<BHHB4sHBBBhhH` (21 bytes). The telemetry format correction is documentation-only and matches the packed E15 structure. Propose PC modules, device abstraction/dry-run adapters, logging, test harness and priorities. Explicitly list missing information rather than invent details.
+**Acceptance:** reviewed architecture + compatibility matrix; user approves M1 plan. No firmware edits or robot motion.
+
+## M1 — PC communication, real joystick, basic diagnostics
+**Build:** INI-configured modem serial port; fatal modem startup error with available COM list; fixed-port modem reconnection during operation. Use E2's USB HID gamepad via Pygame, load `[car_N_control]` button mappings from INI, and validate input-device availability/mapped indexes at startup. Agree HID identity/reconnection and neutral-input reenable policy before implementation. Poll the gamepad and assemble/submit World State together at **50 Hz (20 ms)**, independently of display redraw. Parse/validate/log **21-byte** car telemetry at nominal **20 Hz**, using `<BHHB4sHBBBhhH`. Expose effective AUTO movement bits and received/echoed sequences. Car presence switch and synthetic car adapter; diagnostic GUI or simple debug display.
+**HIL:** one real E15 car, modem and the E2 HID gamepad with available physical buttons; others Not Present/synthetic when needed. Verify all configured button mappings as hardware permits, input→motor and held/neutral behavior, HID versus modem reconnects, packet/timing statistics and continued 50 Hz control under independently paced display load, without modifying E15.
+**Acceptance:** repeatable controlled motion, validated packet encoding against existing docs, telemetry loss/return behavior, startup failure procedure, log evidence. Obtain user approval before M2.
+
+## M2 — Navigation definition and test intersections (PC + planned firmware contract)
+**Build PC:** load an interim small NFC marker dictionary; map approach, inside and outside tags; compute three two-output split types; filtered joystick output; contextual branch option state. Add a small synthetic NFC event injector for cases physical tags cannot yet demonstrate. Do not treat PC-filtered input as sufficient to enforce restrictions in car firmware.
+**Firmware boundary:** E15 currently has fixed eight-tag validation and does not enforce topology. The agent must first document required car navigation changes **for discussion only** and request explicit authorization for any eventual car-firmware work.
+**Acceptance:** logs/UI accurately demonstrate approach selection, repeated tag redundancy, skipped tags, default branch and topology-restricted branch; any real firmware-dependent acceptance is marked blocked until hardware/tag map and user authorization are ready.
+
+## M3 — Reservations, topology acknowledgment and evacuation
+**Build:** centralized per-zone state machines, per-car reservation, board occupancy and computed topology bits; pending robot acquisition, recorded first changed `world_seq`, wrap-safe echo confirmation, Present/Not Present and disconnected/last-known-state rules. Inactivity 10 s and hard hold 60 s evacuation timers (both INI-configurable), default forward override, outside marker release.
+**HIL:** one real car where possible, synthetic NFC/telemetry for other cases, robot dry-run. Validate car approaches before robot request, robot acquires free zone, topology stays unchanged while car owns zone, missing telemetry and multiple outside markers.
+**Acceptance:** state transition log, tests of acknowledgement and absence policy, no contradictory ownership in modeled state, human review of explicitly accepted timing race.
+
+## M4 — Robot scheduler and workflow dry-run
+**Build:** startup board-inventory UI (exactly three among A-D+gripper), car-outside confirmation, board+gripper invariant; queue ordered by least recently touched and updated on successful operations; choose eligible board pickups and empty placements; replaceable selection policy; robot state-machine dry-run that exercises all high-level operations and fault/restart bookkeeping. Teach-target module stores placeholder six-joint targets with explicit calibration status, calculates high/low Z-offset waypoints via FK/IK but never authorizes live assembly with placeholders.
+**Acceptance:** at least 20 repeatable moves (including baseline A→D, B→A, C→B, D→C cycle under no interference), tests of car reservations, blocked pickup fallback, startup with board held and recovery from partial states; no physical UR motion.
+
+## M5 — Real end-effector diagnostics, then controlled UR primitives
+**Parallel early task (may start during M1/M2):** integrate the tested URCap/RS-485 screwdriver interface. Use real tool commands with motion dry-run. Test command acceptance, direction, stop and status. Explicit development mode for bounded time/rotation tests **without asserting physical stall-verified pickup**; protect hardware and log mode.
+**Later live task:** after floorboards, installation points and fixtures exist, teach/calibrate targets; verify payload mass/CoM, clearance envelopes, approach trajectory and end-effector operations; integrate slow force-controlled pickup/placement and Z-depth/stall conditions in carefully authorized tests. Define fail/recovery admin primitives. Do not implement automatic protective-stop reset without separate safety review and user decision.
+**Acceptance:** instrumented UR motion log, validated taught poses, force limits, and explicit supervised physical tests; independent test of fault paths. Real robot coordination with cars only after M3/M4 passes.
+
+## M6 — Displays and visitor/admin UX
+**Build:** reuse the tested E9 four-screen H.264 video/rendering path; add four dedicated layouts with shared axonometric minimap, per-screen highlight/ghost cars, static tag sprite positions, board states, contextual intersection graphic, raw HID joystick visualizer and later telemetry overlays. Admin panel for car presence, startup, diagnostics, mode, fault controls and view state. All four real monitors are available. Rendering at 30/60 fps remains isolated from the shared **50 Hz gamepad-poll/World State** control path; adapt E9's prototype group-stop behavior to the agreed production fault policy.
+**Acceptance:** responsive driving video on available monitors; no stalls in modem/control loop from video delays; proper own-car highlighting and no interpolation of marker positions.
+
+## M7 — Rhino/Grasshopper map and wireless NFC registration (independent workflow)
+**Do NOT code until reviewed with user.** Design persistent logical marker IDs and graph semantics, tile/port metadata, dynamic export plus a wireless handheld NFC scanning tool using related ESP32/NFC hardware. User workflow: scan tag (one beep on new physical scan), receive persistent pending UID, click corresponding Rhino block instance, validate duplicate, save per-instance UID association and export runtime PC/car dictionaries. Discuss Rhino Python vs Grasshopper, scanner addressing, registration message protocol and modem ownership. No unauthorized modem/car firmware changes. Support changed map geometry without renumbering old registrations.
+**Acceptance:** small end-to-end registration trial, stable IDs after minor graph edit, uniqueness audit and unregistered-marker report. Integrate full map once fabricated.
+
+## M8 — Full exhibition integration and endurance
+**Build/test:** full set of cars/screens/joysticks when available; robot, tool, map, admin and display integration; config validation; reconnects; protective stops, stalled tool, telemetry gaps, skipped tags, batteries, simulated absent cars; operator handbook. Perform extended supervised run and fix observed defects. Maintain log/event replay useful for debugging without full physics simulation.
+**Acceptance:** sign-off checklist for each interface, verified starting/homing and interruption handling, accepted residual risks, complete set of working hardware and repeatable operator setup.
+
+## General milestone gate
+At each milestone the coding agent shall deliver: (a) short design discussion before coding, (b) changed-files inventory, (c) interface-compatibility statement, (d) real-HIL versus synthetic test distinction, (e) results/log excerpts, (f) remaining unresolved questions. Never silently treat deferred features or firmware-dependent checks as passed.
