@@ -1,0 +1,22 @@
+[
+  {
+    "test": "LF",
+    "tx_hex": "50494e470a",
+    "rx": "timeout"
+  },
+  {
+    "test": "CRLF",
+    "tx_hex": "50494e470d0a",
+    "rx": "timeout"
+  },
+  {
+    "test": "paced_LF",
+    "tx_hex": "50494e470a",
+    "rx": "timeout"
+  },
+  {
+    "test": "paced_CRLF",
+    "tx_hex": "50494e470d0a",
+    "rx": "timeout"
+  }
+]
