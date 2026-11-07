@@ -20,7 +20,7 @@ The existing World State **uint8** field at BLE offset **2** is reinterpreted as
 | 4 | Administrator mode | Selected | Not selected |
 | 5,6,7 | Reserved | Must be zero until agreed | Reserved |
 
-**Zone availability is NOT synonymous with board presence.** It is an effective permission computed by the PC from whether a floorboard exists and whether the robot has closed the zone. A car's own reservation for an already-available zone does not, by itself, close that zone. The PC tracks board occupancy, reservations and pending robot claims separately. The meaning and effect of administrator mode on firmware navigation is deferred; do not invent behavior.
+**Zone availability is NOT synonymous with board presence.** It is an effective permission computed by the PC from whether a floorboard exists and whether the robot has closed the zone. A car's own reservation for an already-available zone does not, by itself, close that zone. The PC tracks board occupancy, reservations and pending robot claims separately. PC admin behavior is agreed in SYSTEM_SPEC.md section 12. Firmware navigation behavior for admin bit 4 remains deferred; do not invent it.
 
 At the time of drafting, published E15 receives World State but does not yet apply `topology_id` to branch navigation. Making car firmware enforce topology will require a *separately approved firmware iteration*. PC functionality may prepare/transmit the byte without claiming that enforcement works already.
 
@@ -122,7 +122,7 @@ Read zero-based button indexes from `config/address.ini`:
 | `car_3_control` | 6 | 7 | 8 |
 | `car_4_control` | 9 | 10 | 11 |
 
-These are the current values of `forward_button`, `left_button` and `right_button`, not hardcoded application constants. Validate that the selected HID device exposes every mapped index. Existing `[joystick] serial_port` / `pnp_device_id` values are legacy serial metadata and must not be treated as this gamepad's identity. Device enumeration indexes can change; deterministic HID selection and neutral-input reenable after reconnection remain design decisions. On input loss, suppress car movement as specified in `SYSTEM_SPEC.md` while continuing shared World State broadcasts and independent robot operation.
+These are the current values of `forward_button`, `left_button` and `right_button`, not hardcoded application constants. Validate that the selected HID device exposes every mapped index. Existing `[joystick] serial_port` / `pnp_device_id` values are legacy serial metadata and must not be treated as this gamepad's identity. Only one gamepad is connected: use E2's working default index 0, validate available mapped buttons, track the active instance ID for removal events and retry index 0 while disconnected. No GUID/serial-number identification scheme is required now. Discuss input reenable details when implementing this adapter's recovery. On input loss, suppress car movement as specified in `SYSTEM_SPEC.md` while continuing shared World State broadcasts and independent robot operation.
 
 **UR robot:** UR10e on Windows-controlled network interface; real robot motion via validated target+derived approach primitives; see `SYSTEM_SPEC.md`. Do not assume an unconfirmed API, teach pendant program, URCap custom command protocol or automatic protective-stop reset policy.
 
@@ -130,7 +130,14 @@ These are the current values of `forward_button`, `left_button` and `right_butto
 
 **Cameras/monitors:** reuse E9's working four-screen H.264/PyAV CPU-decoding and screen-attached GPU-rendering baseline. Endpoints and SDL display indexes are in `config/address.ini`; displays currently map cars 1–4 to 2, 3, 0, 1. Display targets of 30/60 fps are independent of the **50 Hz** input/World State loop. Final map/HUD and admin behavior remain to be designed; video latency or display failure must not block that loop.
 
-**NFC map/registration:** future shared logical-marker dictionary used on PC and in future car firmware. The current BLE telemetry is still the 4-byte UID field defined above. A wireless handheld scanner is a **separate design workflow** requiring discussion/permission before any additional firmware or modem messages.
+**NFC map/registration:** future shared logical-marker dictionary used on PC and in future car firmware. The current BLE telemetry is still the 4-byte UID field defined above. The user will provide Rhino-distilled tag/property JSON; defer detailed map implementation until reviewing it. Use 2-3 redundant approach tags per split. A wireless handheld scanner is a **separate design workflow** requiring discussion/permission before any additional firmware or modem messages.
 
 ## Compatibility review required at M0
 The agent must obtain the actual `remote_control_payload.md` text from the linked GitHub source, compare it with E15, and maintain a **verbatim frozen copy** for traceability. This companion file is an explicit delta and extraction for the PC app, not permission to override other fields. Any discrepancy must be listed for user review before coding against an invented interpretation.
+
+## Agreed command arbitration and admin input
+Preserve current E15 AUTO/MANUAL movement semantics, including simultaneous-turn handling. The PC filters incoherent physical input; no firmware tie-break change is requested. The canonical document's older both-turn AUTO description is not a reason to change tested firmware. Deliberate following-mode encoding is separate from raw contradictory button input.
+
+Escape toggles admin mode; 1-4 select a car; Up/Left/Right provide AUTO control; held Left Ctrl selects MANUAL with Down/reverse available. Visitor inputs are ignored in admin mode, but video/UI and World State transmission continue, with Game Paused / Admin Control shown on visitor screens. Q requests the verified-HOME-gated exit. Bindings use `[admin_keyboard_shotcut]`. These are PC policies using existing packet fields, not new firmware commands.
+
+Discuss recovery per component at implementation, preferring silent reconnect with diagnostics. Prioritize car charging/power-off/reappearance, without inventing session fields or clearing reservations on telemetry loss. A focused screwdriver experiment precedes production tool integration to establish actual commands/status.
