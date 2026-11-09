@@ -20,9 +20,9 @@ The existing World State **uint8** field at BLE offset **2** is reinterpreted as
 | 4 | Administrator mode | Selected | Not selected |
 | 5,6,7 | Reserved | Must be zero until agreed | Reserved |
 
-**Zone availability is NOT synonymous with board presence.** It is an effective permission computed by the PC from whether a floorboard exists and whether the robot has closed the zone. A car's own reservation for an already-available zone does not, by itself, close that zone. The PC tracks board occupancy, reservations and pending robot claims separately. PC admin behavior is agreed in SYSTEM_SPEC.md section 12. Firmware navigation behavior for admin bit 4 remains deferred; do not invent it.
+**Zone availability is NOT synonymous with board presence.** It is an effective permission computed by the PC from whether a floorboard exists and whether the robot has closed the zone. A car's own reservation for an already-available zone does not, by itself, close that zone. The PC tracks board occupancy, reservations and pending robot claims separately. PC admin behavior is agreed in SYSTEM_SPEC.md section 12. Admin bit 4 does not request any firmware navigation behavior; all adminsplit/zone filtering is on the PC.
 
-At the time of drafting, published E15 receives World State but does not yet apply `topology_id` to branch navigation. Making car firmware enforce topology will require a *separately approved firmware iteration*. PC functionality may prepare/transmit the byte without claiming that enforcement works already.
+E15 receives World State but does not apply `topology_id` to navigation. Under the 2026-11-09 design this is intentional: PC tag-attribute logic filters the existing movement bytes; neither E16 nor later map edits require a firmware navigation dictionary or topology enforcement. Keep transmitting the agreed topology byte for state/receipt correlation. Proposed E16 removes E15's fixed eight-tag validation; see `E16_FIRMWARE_CHANGES.md`. This brief is not firmware implementation/flashing permission.
 
 ## Existing, unchanged transport path
 
@@ -61,7 +61,7 @@ This **does not use ESP-NOW**. Older tests in the repository do not describe the
 | 4 | `turn_right_indicator` | Existing right selection/steering bit |
 | 5–7 | reserved | Transmit zeros |
 
-**Critical:** In AUTO mode, stop/neutral should preserve `auto=1`; no forward or turn bits gives movement byte `0x01`, not `0x00` (which selects MANUAL). The PC may change the *logic generating these bytes* without changing their defined wire meaning. New intersection-aware filtering and default-edge selection belong to PC business logic; the corresponding future local firmware enforcement is a separate approved work item.
+**Critical:** In AUTO mode, stop/neutral should preserve `auto=1`; no forward or turn bits gives movement byte `0x01`, not `0x00` (which selects MANUAL). All tag-aware filtering/default-edge selection is PC business logic using existing turn bits. There is no planned local firmware map enforcement. No additional UID attributes, token or navigation context are sent to the car.
 
 ### Robot State: exact existing wire layout
 
@@ -94,9 +94,9 @@ does not change the firmware, fields, byte offsets or wire protocol.
 
 ### Sequence echo / topology acknowledgment (PC policy only)
 
-- On changing topology, PC saves the sequence number of the **first World State containing the new topology byte**.
+- On changing topology, PC saves the sequence number of the **first World State containing the new topology byte and movement commands filtered consistently with that closure**.
 - Car telemetry echoes `last_world_seq`; the PC uses it to determine whether that car has received this new state or a later one. Comparison must accommodate **16-bit wrap**, duplicate/stale telemetry, reconnects and sequence reset ambiguity; don't use ordinary unbounded `>=` comparison.
-- For the intended new firmware, the user elects to treat receipt acknowledgment as sufficient to consider topology applied; this assumes the car consumes topology immediately when receiving a World State.
+- Keep the existing receipt synchronization gate, but remove the old assumption that firmware applies topology/map logic. The car consumes its movement byte; the PC enforces all tag-based restrictions. The echo proves receipt of a snapshot, not execution, physical clearance or successful branch selection.
 - The echo is **not** evidence that the car physically cleared a zone; car-zone reservation and admission are handled by the game controller's NFC-derived state.
 - Only applicable Present cars are synchronization participants, subject to the explicitly agreed last-known-outside exception for missing telemetry in `SYSTEM_SPEC.md`.
 - Do not introduce new acknowledgments, new headers, a version counter field or a revised wire format without user approval. `world_seq` already exists and fulfills the intended correlation function.
@@ -104,7 +104,7 @@ does not change the firmware, fields, byte offsets or wire protocol.
 ### Existing E15 firmware constraints to respect
 
 - E15's `serviceWorldState()` currently reads a car-specific movement command; `topology_id` is not currently enforced in car navigation.
-- E15 currently validates a fixed **eight-tag** forward cycle. The future physical exhibit will use a different graph, repeated intersection-approach markers and many outside markers. Such changes are **out of scope here** until separately authorized.
+- E15 currently validates a fixed **eight-tag** forward cycle and invokes NFC recovery for unknown/out-of-order UIDs. This is incompatible with arbitrary PC-owned tag attributes and unknown-tag-as-ordinary policy. The proposed E16 change removes that map-specific check, preserving NFC hardware/bus recovery and telemetry. Implementation/flashing remain separately authorized; details are in `E16_FIRMWARE_CHANGES.md`.
 - Its current timeout stops car motion after **500 ms without a valid World State**, while keeping its mode; other recovery/battery behaviors are specified in the canonical documentation and source.
 - The E15 firmware's current `nfc_marker_id` is **four bytes**, not a generic 7-byte NFC UID field. Proposed handheld-registration designs must respect that limitation or be separately approved to change interface/firmware.
 - The E15 BLE modem used in this repository is based on BLE, not ESP-NOW. No PC-side plugin should attempt to communicate with cars by ESP-NOW.
@@ -130,7 +130,9 @@ These are the current values of `forward_button`, `left_button` and `right_butto
 
 **Cameras/monitors:** reuse E9's working four-screen H.264/PyAV CPU-decoding and screen-attached GPU-rendering baseline. Endpoints and SDL display indexes are in `config/address.ini`; displays currently map cars 1–4 to 2, 3, 0, 1. Display targets of 30/60 fps are independent of the **50 Hz** input/World State loop. Final map/HUD and admin behavior remain to be designed; video latency or display failure must not block that loop.
 
-**NFC map/registration:** future shared logical-marker dictionary used on PC and in future car firmware. The current BLE telemetry is still the 4-byte UID field defined above. The user will provide Rhino-distilled tag/property JSON; defer detailed map implementation until reviewing it. Use 2-3 redundant approach tags per split. A wireless handheld scanner is a **separate design workflow** requiring discussion/permission before any additional firmware or modem messages.
+**NFC map/registration:** PC-only UID-to-attributes dictionary; no navigation graph or firmware map dictionary. Attributes are `track`, `mergeedge`, `split`, `adminsplit`, `inzone`, `reservezone`, `safeexit`; values and filtering are defined in SYSTEM_SPEC section 5. Keep four-byte UID telemetry unchanged. The user will supply Rhino JSON; final serialization/visual metadata is reviewed then. Use 2-3 approach tags per split. A wireless handheld scanner is a separate design workflow requiring authorization before adding firmware/modem messages.
+
+**Tag event versus ongoing policy:** a newly observed distinct UID replaces the full PC navigation context. Same-UID telemetry does not repeat transitions or release tokens, but denied requests retry each 50 Hz tick while `reservezone` remains set. A new UID with both `inzone:none` and `reservezone:none` releases the token and ends evacuation. An observed unknown UID has all-none attributes and qualifies; startup/no-read sentinels, malformed or stale telemetry are not new unknown-tag events. Preserve freshness/sequence checks and retained reservations across disconnects; discuss restart localization separately. Admin-only splits force `safeexit` in normal mode; admin removes that restriction, but never the normal zone-token admission requirement.
 
 ## Compatibility review required at M0
 The agent must obtain the actual `remote_control_payload.md` text from the linked GitHub source, compare it with E15, and maintain a **verbatim frozen copy** for traceability. This companion file is an explicit delta and extraction for the PC app, not permission to override other fields. Any discrepancy must be listed for user review before coding against an invented interpretation.
