@@ -1,5 +1,26 @@
 # Detour robot controller
 
+## M1 controller and diagnostic UI
+
+```powershell
+.\.venv\Scripts\python.exe -m game_controller
+```
+
+Starts four camera/status views in admin mode. Keyboard controls the selected
+car there; joystick controls players in normal mode, with no enable switch. Admin
+controls are top overlays on those four screens; no fifth visible window.
+Space toggles admin/player mode; Q opens Enter/Escape quit confirmation.
+Read [the M1 test guide](docs/M1_TEST_GUIDE.md) before supervised bench
+driving. Behavior settings are in `config/game_config.ini`; device addresses,
+ports, button/key and display mappings remain in `config/address.ini`.
+M1 does not connect to or command the UR robot or end effector.
+
+For an automated stop-only observation:
+
+```powershell
+.\.venv\Scripts\python.exe -m game_controller --stop-only --seconds 30
+```
+
 ## Python environment setup (Windows PowerShell)
 
 Install 64-bit Python 3.12 on each computer. The development environment was

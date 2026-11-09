@@ -67,6 +67,18 @@ component-specific recovery discussions.
 
 ## Acceptance before adoption
 
+### Additional recovery issue for separate review
+
+See `../docs/M1_UNRESPONSIVE_CAR_REVIEW.md`: healthy BLE/command echoes coincided
+with STOPPED and no-line telemetry until a reported reboot. E15's private
+`requireFreshForward` latch rejects MANUAL as well as AUTO until forward and a
+valid line are seen after NFC recovery. This is a strong explanation, not proven
+internal-state capture. Review whether deliberate MANUAL repositioning should
+be allowed once NFC recovery completes without requiring a line first. That
+would be an additional explicitly approved firmware change; do not silently
+remove protections or treat the PC switch removal as a firmware fix. Preserve
+the minimal E16 delta above until this recovery policy is approved.
+
 Use a minimal direct script with a real car before adding wrappers; record the
 exact source/build, hardware and logs.
 

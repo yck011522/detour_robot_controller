@@ -5,6 +5,12 @@ flashes, robot power operations or live motion were performed in this audit.
 
 ## Verdict
 
+**Subsequent authorization, 2026-11-09:** the user explicitly requested M1
+implementation after resolving the three policy choices. The sign-off caveat
+below records the state at initial audit; it no longer blocks M1 work. Initial
+implementation and stop-only evidence are in `../docs/M1_TEST_GUIDE.md`. M1
+acceptance is separate and still needs operator driving/recovery checks.
+
 M0's technical review and architecture deliverable are now recorded. The three
 immediate policy decisions were resolved by the user on 2026-11-09, as recorded
 below. M1 is technically ready to begin; explicit approval to implement the
@@ -153,9 +159,9 @@ Final layout, minimap/HUD artwork and complete recovery UI stay in M6.
 
 One central game/controller process owns authoritative state, Pygame joystick
 polling, admin arbitration and World State generation/submission together at
-50 Hz. Keep SDL input pumping on that process's main thread. Use a small central
-diagnostic/admin window to provide a known focus target. No fifth player view
-or extra game controller is required.
+50 Hz. Keep SDL input pumping on that process's main thread. Following the M1
+operator refinement, its SDL event-owner window is hidden: all visible admin
+controls live on the four player overlays, with no fifth visible panel/window.
 
 A serial worker continuously drains/parses telemetry and writes generated
 snapshots with finite I/O waits. Outbound state is latest-only and carries the
