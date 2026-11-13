@@ -377,7 +377,8 @@ def main():
                     if record and record[0] == received_session and record[1] >= stop_sent_generation and abs(packet.left_mm_s) <= 5 and abs(packet.right_mm_s) <= 5:
                         stop_confirmed.add(packet.car)
                 time.sleep(.02)
-            required = {i+1 for i, car in enumerate(cars) if car.present}
+            # Reservation presence must not exclude a potentially driven car.
+            required = {1, 2, 3, 4}
             log("SHUTDOWN_STOP", confirmed=sorted(stop_confirmed), unconfirmed=sorted(required-stop_confirmed),
                 meaning="fresh stop-command receipt plus reported wheel speed <=5 mm/s; not physical inspection")
             if required - stop_confirmed:

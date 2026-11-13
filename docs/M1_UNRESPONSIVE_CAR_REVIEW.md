@@ -48,7 +48,7 @@ flashed build was not read. No claim is made that a firmware crash was proven.
 
 - Removed the PC enable/disable-driving switch/config field. Normal mode uses
   current joystick intent; admin mode uses the selected car's current keyboard
-  intent. Presence, stale feedback/echo, device loss, active firmware protection
+  intent. Stale feedback/echo, device loss, active firmware protection
   and pending quit still suppress commands. `--stop-only` remains an explicit
   diagnostic override, not a UI arming control.
 - Show STOPPED/no-line as a **possible post-NFC interlock**, rather than making
@@ -64,3 +64,6 @@ flashed build was not read. No claim is made that a firmware crash was proven.
 - On another occurrence, preserve logs and inspect reported state, mask and
   echoed intent before reboot if practical. A valid-line forward request may
   release the existing interlock, but software must not issue it autonomously.
+
+Presence update: the Car Present checkbox now records reservation metadata only;
+it does not suppress player or admin driving. All four cars start checked.

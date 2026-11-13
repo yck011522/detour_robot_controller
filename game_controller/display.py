@@ -132,9 +132,13 @@ def draw_panel(surface, state, camera, video_stale, font, small):
     line(f"Input F/L/R: {state.get('raw', (0, 0, 0))} | Sent: {state.get('command', '0x01')} | {state.get('reason', '')}", 212)
     line(state.get("warning") or state.get("global_counts", ""), 244, (255, 180, 90) if state.get("warning") else dim)
     line("Space: admin | 1-4: select | arrows: drive | LCtrl: direct | Q: quit | Enter/Esc: confirm/cancel", 274, dim)
-    for rect, label in (((20, 300, 240, 42), "Mark Not Present" if state.get("present") else "Mark Present"),):
-        pygame.draw.rect(surface, (35, 39, 45), rect, border_radius=5)
-        surface.blit(small.render(label, True, white), (rect[0] + 12, rect[1] + 10))
+    checkbox = pygame.Rect(24, 307, 28, 28)
+    pygame.draw.rect(surface, (35, 39, 45), checkbox)
+    pygame.draw.rect(surface, white, checkbox, width=2)
+    if state.get("present"):
+        pygame.draw.lines(surface, (110, 235, 145), False,
+                          [(30, 321), (37, 328), (47, 314)], width=3)
+    surface.blit(small.render("Car Present", True, white), (64, 311))
 
 
 def play(car, url, display_index, settings, snapshots, events, stop, bindings):

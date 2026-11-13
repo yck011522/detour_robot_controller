@@ -85,7 +85,17 @@ class StateTests(unittest.TestCase):
         self.assertEqual(self.command(admin=True, keyboard=(False, True, False, False, True)), 8)
         self.assertEqual(self.command(stop_only=True), 1)
         self.car.present = False
-        self.assertEqual(self.command(), 1)
+        self.assertEqual(self.command(), 11)
+
+    def test_presence_does_not_gate_admin_auto_or_manual(self):
+        for present in (True, False):
+            self.car.present = present
+            with self.subTest(present=present):
+                self.assertEqual(self.command(admin=True), 19)
+                self.assertEqual(self.command(admin=True, keyboard=(False, True, False, False, True)), 8)
+                self.assertEqual(self.command(admin=True, now=11), 1)
+                self.assertEqual(self.command(admin=True, stop_only=True), 1)
+                self.assertEqual(self.command(admin=True, selected=2), 1)
 
     def test_car_recovery_state_suppresses_driving(self):
         self.car.packet = replace(self.car.packet, controller=13)
@@ -184,7 +194,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_current_config_and_single_car_profile(self):
         config = load()
-        self.assertEqual(config["present"], {1})
+        self.assertEqual(config["present"], {1, 2, 3, 4})
         self.assertEqual(config["settings"]["control_hz"], 50)
         self.assertEqual(len({serial.casefold() for _, _, serial in config["cameras"]}), 4)
         self.assertTrue(all(serial for _, _, serial in config["cameras"]))

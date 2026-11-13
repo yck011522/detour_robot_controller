@@ -30,10 +30,15 @@ only to its configured COM port after runtime loss. No BLE adapter or car MAC
 selection is needed. Four available uniquely mapped displays are required for
 the normal four-view launch; `--no-video` isolates communication diagnostics.
 
-The application starts in admin mode with Car 1 Present. There is no driving-enable switch: admin keyboard or normal-mode joystick intent controls the car whenever existing eligibility checks pass.
-Cars 2-4 start Not Present because they are currently off. These initial values
-are changeable in `config/game_config.ini`; a runtime disconnection never changes
-the operator's presence assertion. Cameras are independent and retry while off.
+The application starts in admin mode with all four cars Present. The admin
+**Car Present** checkbox records reservation presence: checked means present.
+It does not gate player or admin AUTO/MANUAL driving. M1 has no reservation
+scheduler yet, so this flag currently records the operator's assertion only.
+Initial values are configured in `config/game_config.ini`; disconnection never
+changes the checkbox. Cameras retry independently. Existing feedback, echo,
+device and protection checks still apply. Shutdown requires stop confirmation
+from all four cars regardless of presence; unavailable cars are reported as
+unconfirmed and make the run result FAIL.
 
 ## First supervised driving test
 
@@ -56,8 +61,8 @@ the operator's presence assertion. Cameras are independent and retry while off.
    neutral. Check raw input and effective command independently.
 5. In admin mode, **1-4** select the car; **Up/Left/Right** drive AUTO. Hold
    **Left Ctrl** for MANUAL, with **Down** for reverse. MANUAL left/right alone
-   pivot; AUTO turn bits alone do not enable forward speed. Not Present cars
-   and stale/protected cars remain stopped. A missing gamepad suppresses driving
+   pivot; AUTO turn bits alone do not enable forward speed. Presence does not
+   block these commands; stale/protected cars remain stopped. A missing gamepad suppresses driving
    in both modes under the agreed device-loss policy.
 6. **Escape** cancels current admin keyboard intent, not admin mode or exit.
    Held inputs are freshly sampled again; this is not a latched emergency stop.
@@ -168,7 +173,8 @@ removed. Future production HOME-gated quit remains deferred to M4/M5.
 
 **M1 accepted and closed, 2026-11-09:** the operator confirmed the final physical
 gamepad/modem reconnect and held-key/focus checks passed and requested closeout.
-One real car with other cars explicitly Not Present is the accepted scope.
+A one-car bench run can exercise controls, but shutdown still reports missing
+stop confirmations for the other three cars independently of their presence.
 Four-active-car/video load remains expanded coverage when hardware is available.
 
 The STOPPED-but-receiving incident and suspected E15 post-NFC interlock are

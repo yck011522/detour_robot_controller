@@ -7,7 +7,8 @@ from .protocol import AUTO_STOP, movement
 
 @dataclass
 class Car:
-    present: bool = False
+    # Reservation metadata; never a driving permission or connectivity flag.
+    present: bool = True
     packet: object = None
     received: float = 0
     session: int = 0
@@ -92,8 +93,6 @@ class Car:
         reason = ""
         if stop_only:
             reason = "Stop-only verification"
-        elif not self.present:
-            reason = "Not Present"
         elif not modem_ok:
             reason = "Modem unavailable"
         elif not joystick_ok:
