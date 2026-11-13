@@ -87,6 +87,8 @@ class VideoWindow:
             "SDL_RenderClear": (integer, [pointer]),
             "SDL_RenderCopy": (integer, [pointer, pointer, pointer, pointer]),
             "SDL_RenderPresent": (None, [pointer]),
+            "SDL_GetRendererOutputSize": (integer, [pointer, pointer, pointer]),
+            "SDL_RenderReadPixels": (integer, [pointer, pointer, uint, pointer, integer]),
             "SDL_DestroyTexture": (None, [pointer]),
             "SDL_DestroyRenderer": (None, [pointer]),
         }
@@ -122,7 +124,7 @@ class VideoWindow:
             raise RuntimeError(self.sdl.SDL_GetError().decode(errors="replace"))
         return result
 
-    def draw(self, frame, overlay=None):
+    def draw(self, frame, overlay=None, recorder=None, capture_ui=True):
         """Share PyAV plane pointers; honor their actual pitches/padded rows."""
         if frame is not None:
             if frame.format.name not in ("yuv420p", "yuvj420p"):
@@ -145,6 +147,8 @@ class VideoWindow:
         self.check(self.sdl.SDL_RenderClear(self.renderer))
         if self.video:
             self.check(self.sdl.SDL_RenderCopy(self.renderer, self.video, None, None))
+        if recorder is not None and not capture_ui:
+            self.capture(recorder)
         if overlay is not None:
             if self.overlay is None:
                 # SDL ABGR8888 matches byte-ordered RGBA on little-endian Windows.
@@ -157,7 +161,19 @@ class VideoWindow:
             destination = (C.c_int * 4)(0, 0, *overlay.get_size())
             self.check(self.sdl.SDL_RenderCopy(
                 self.renderer, self.overlay, None, C.byref(destination)))
+        if recorder is not None and capture_ui:
+            self.capture(recorder)
         self.sdl.SDL_RenderPresent(self.renderer)
+
+    def capture(self, recorder):
+        if recorder.frames.full():
+            recorder.dropped += 1
+            return
+        width, height = C.c_int(), C.c_int()
+        self.check(self.sdl.SDL_GetRendererOutputSize(self.renderer, C.byref(width), C.byref(height)))
+        pixels = (C.c_ubyte * (width.value * height.value * 4))()
+        self.check(self.sdl.SDL_RenderReadPixels(self.renderer, None, 0x16762004, pixels, width.value * 4))
+        recorder.offer(bytes(pixels), width.value, height.value)
 
     def close(self):
         """Release textures before their renderer, then destroy the window."""

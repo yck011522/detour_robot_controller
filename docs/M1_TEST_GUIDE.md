@@ -42,6 +42,28 @@ unconfirmed and make the run result FAIL.
 
 ## First supervised driving test
 
+### Recording a monitor
+
+In admin mode press **C**, then **1-4** to choose the car monitor. **U** toggles
+with/without UI (with UI is the initial choice). **Enter** starts recording;
+**Escape** cancels the menu. Monitor numbers mean car numbers, independent of
+Windows/SDL enumeration. One monitor can be recorded at a time.
+
+Recording continues when **Space** returns to player mode. To stop, enter admin
+mode with **Space**, press **C**, then **Enter**. Escape closes the menu without
+changing the recording. Driving is paused while the capture menu is open.
+An active recording's target and UI option are fixed until stopped.
+
+Files are timestamped `logs/captures/car_N_*.mkv` (H.264). With UI records the
+rendered monitor including current overlays; without UI records the rendered
+camera layer, including a cached frame or black screen during camera failure.
+Encoding uses a bounded background queue; frames may be dropped if the encoder
+cannot keep up. Capture status/errors appear on overlays and in the M1 log.
+Normal application shutdown stops and flushes recording automatically. Forced
+process termination or power loss cannot guarantee a complete final recording.
+
+### Driving controls
+
 1. Verify Car 1 feedback and command echo are fresh, and its camera plays.
    The car can have fresh feedback while video is unavailable, or vice versa.
 2. In admin mode, use the top overlay on any of the four displays. No fifth

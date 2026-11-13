@@ -46,6 +46,8 @@ def load(address_path=None, game_path=None):
         "toggle": keys["admin_toggle_button"], "quit": keys["admin_quit_button"],
         "cancel": keys["admin_cancel_button"],
         "accept": keys["admin_accept_button"],
+        "capture": keys.get("admin_capture_button", "K_c"),
+        "capture_ui": keys.get("admin_capture_ui_button", "K_u"),
         "forward": keys["admin_car_control_forward_button"],
         "left": keys["admin_car_control_left_button"], "right": keys["admin_car_control_right_button"],
         "backward": keys["admin_car_control_backward_button"], "manual": keys["admin_manual_control_modifier_button"],

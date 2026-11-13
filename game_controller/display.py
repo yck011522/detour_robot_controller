@@ -9,6 +9,7 @@ import av
 import pygame
 
 from .video import VideoWindow
+from .capture import Recorder
 
 
 class Camera:
@@ -87,7 +88,7 @@ def panel_theme(state):
 
 def panel_action(position, state):
     """Mouse controls live on each car's own admin overlay, never a fifth panel."""
-    if not state.get("admin") or state.get("quit_pending"):
+    if not state.get("admin") or state.get("quit_pending") or state.get("capture_menu"):
         return None
     x, y = position
     if 300 <= y < 342:
@@ -116,12 +117,28 @@ def draw_panel(surface, state, camera, video_stale, font, small):
         line(state.get("global_status", ""), 152, dim)
         line(f"Car {state.get('car', '?')}: {state.get('feedback', 'Waiting for feedback')}", 190)
         return
+    if state.get("capture_menu"):
+        line("Video capture", 15, large=True)
+        request = state.get("capture_request")
+        if request:
+            line(f"Recording car {request['car']} | {'With UI' if request['ui'] else 'Without UI'}", 65)
+            line("Enter: stop recording     Escape: cancel menu", 110)
+        else:
+            line(f"Car: {state.get('capture_car', 1)} (press 1-4)", 65)
+            line(f"{'With UI' if state.get('capture_ui', True) else 'Without UI'} (press U to toggle)", 110)
+            line("Enter: start recording     Escape: cancel menu", 155)
+        line(state.get("capture_status", ""), 210)
+        line("Driving is paused while this menu is open.", 250, dim)
+        return
     video = "PLAYING" if active else "UNAVAILABLE / STALE"
     if not admin:
         line(f"CAR {state.get('car', '?')} | Video: {video} | Feedback: {state.get('feedback', 'Waiting')} | Echo: {state.get('echo', 'Waiting')}", 12)
         line(f"Battery: {state.get('battery', '--')} | {state.get('reported', '')}", 46, dim)
+        status = state.get("capture_status", "Capture: off")
         if state.get("warning"):
-            line(state["warning"], 73, (255, 180, 90))
+            line(f"{state['warning']} | {status}", 73, (255, 180, 90))
+        else:
+            line(status, 73, dim)
         return
     line(f"CAR {state.get('car', '?')} | {title}", 12, large=True)
     line(state.get("global_status", "Starting diagnostics"), 52, dim)
@@ -131,7 +148,7 @@ def draw_panel(surface, state, camera, video_stale, font, small):
     line(f"UID: {state.get('uid', '--')} | Tag age: {state.get('tag_age', '--')} | {state.get('sensors', '')}", 180, dim)
     line(f"Input F/L/R: {state.get('raw', (0, 0, 0))} | Sent: {state.get('command', '0x01')} | {state.get('reason', '')}", 212)
     line(state.get("warning") or state.get("global_counts", ""), 244, (255, 180, 90) if state.get("warning") else dim)
-    line("Space: admin | 1-4: select | arrows: drive | LCtrl: direct | Q: quit | Enter/Esc: confirm/cancel", 274, dim)
+    line("C: capture | Space: admin | 1-4: select | arrows: drive | LCtrl: direct | Q: quit | Enter/Esc: confirm/cancel", 274, dim)
     checkbox = pygame.Rect(24, 307, 28, 28)
     pygame.draw.rect(surface, (35, 39, 45), checkbox)
     pygame.draw.rect(surface, white, checkbox, width=2)
@@ -139,6 +156,7 @@ def draw_panel(surface, state, camera, video_stale, font, small):
         pygame.draw.lines(surface, (110, 235, 145), False,
                           [(30, 321), (37, 328), (47, 314)], width=3)
     surface.blit(small.render("Car Present", True, white), (64, 311))
+    surface.blit(small.render(state.get("capture_status", "Capture: off"), True, white), (300, 311))
 
 
 def play(car, url, display_index, settings, snapshots, events, stop, bindings):
@@ -146,7 +164,9 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
     av.logging.set_level(av.logging.ERROR)
     pygame.display.init()
     pygame.font.init()
-    window = camera = None
+    window = camera = recorder = None
+    capture_path = None
+    failed_capture = None
     local_stop = threading.Event()
     state = {"car": car}
     try:
@@ -184,8 +204,30 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
                 frame = camera.latest.popleft()
             except IndexError:
                 frame = None
+            request = state.get("capture_request")
+            desired = request if request and request["car"] == car else None
+            desired_path = desired["path"] if desired else None
+            if recorder and (desired_path != capture_path or recorder.error):
+                recorder.close()
+                error = recorder.error
+                events.put_nowait(("capture_status", car, capture_path, "failed" if error else "stopped", error))
+                if error:
+                    failed_capture = capture_path
+                recorder = None
+                capture_path = None
+            if desired and recorder is None and desired_path != failed_capture:
+                capture_path = desired_path
+                recorder = Recorder(capture_path, settings["display_fps"])
+                events.put_nowait(("capture_status", car, capture_path, "recording", ""))
             draw_panel(surface, state, camera, settings["video_stale_s"], font, small)
-            window.draw(frame, surface)  # Cached video/placeholder still gets a fresh status overlay.
+            try:
+                window.draw(frame, surface, recorder, desired.get("ui", True) if desired else True)
+            except Exception as error:
+                if recorder is None:
+                    raise
+                recorder.close()
+                events.put_nowait(("capture_status", car, capture_path, "failed", str(error)))
+                failed_capture, capture_path, recorder = capture_path, None, None
             clock.tick(settings["display_fps"])
     except Exception as error:
         try:
@@ -193,6 +235,8 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
         except queue.Full:
             pass
     finally:
+        if recorder:
+            recorder.close()
         local_stop.set()
         if camera:
             camera.thread.join(timeout=6)

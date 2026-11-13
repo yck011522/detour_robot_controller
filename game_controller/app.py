@@ -17,7 +17,7 @@ import time
 
 import pygame
 
-from .config import load
+from .config import ROOT, load
 from .display import offer, play
 from .modem import Modem, open_modem
 from .protocol import AUTO_STOP, CONTROLLERS, FOLLOWERS
@@ -135,6 +135,10 @@ def main():
     joystick_instance = None
     stop_confirmed = set()
     stop_sent_generation = 0
+    capture_menu = False
+    capture_car, capture_ui = 1, True
+    capture_request = None
+    capture_status = "Capture: off"
     quit_pending = False
     started = time.perf_counter()
     try:
@@ -172,6 +176,7 @@ def main():
 
         def key_action(key):
             nonlocal admin, selected, quitting, keyboard, keyboard_at, quit_pending
+            nonlocal capture_menu, capture_car, capture_ui, capture_request, capture_status
             if quit_pending:
                 if key == keys["accept"]:
                     quitting = True
@@ -180,6 +185,33 @@ def main():
                     quit_pending = False
                     keyboard, keyboard_at = (False,) * 5, 0
                     log("QUIT_CANCELLED")
+                return
+            if capture_menu:
+                if key == keys["cancel"]:
+                    capture_menu = False
+                elif key == keys["accept"]:
+                    if capture_request is not None:
+                        capture_request = None
+                        capture_status = "Capture: stopping"
+                    elif args.no_video:
+                        capture_status = "Capture unavailable with --no-video"
+                    else:
+                        path = ROOT / "logs/captures" / f"car_{capture_car}_{datetime.now():%Y%m%d_%H%M%S_%f}.mkv"
+                        capture_request = {"car": capture_car, "ui": capture_ui, "path": str(path)}
+                        capture_status = f"Capture: starting car {capture_car}"
+                    capture_menu = False
+                elif capture_request is None:
+                    if key == keys["capture_ui"]:
+                        capture_ui = not capture_ui
+                    for car in range(1, 5):
+                        if key == keys[f"car_{car}"]:
+                            capture_car = car
+                keyboard, keyboard_at = (False,) * 5, 0
+                return
+            if admin and key == keys["capture"]:
+                capture_menu = True
+                capture_car = selected
+                keyboard, keyboard_at = (False,) * 5, 0
                 return
             if key == keys["quit"]:
                 quit_pending = True
@@ -246,7 +278,7 @@ def main():
                     kind, car, *values = message
                     if kind == "quit":
                         key_action(keys["quit"])
-                    elif kind == "action" and admin and not quit_pending:
+                    elif kind == "action" and admin and not quit_pending and not capture_menu:
                         if values[0] == "presence":
                             cars[car - 1].present = not cars[car - 1].present
                             log("PRESENCE", car=car, present=cars[car - 1].present)
@@ -262,6 +294,15 @@ def main():
                         timestamp, frame_at, decoded, corrupt, error = values
                         videos[car] = {"status": "Playing" if frame_at and timestamp - frame_at <= settings["video_stale_s"] else "Unavailable / stale",
                                        "at": timestamp, "frame_at": frame_at, "decoded": decoded, "corrupt": corrupt, "error": error}
+                    elif kind == "capture_status":
+                        path, status, error = values
+                        log("CAPTURE", car=car, path=path, status=status, error=error)
+                        if capture_request and capture_request["path"] == path:
+                            capture_status = f"Capture: {status} car {car}" + (f" ({error})" if error else "")
+                            if status in ("failed", "stopped"):
+                                capture_request = None
+                        elif capture_request is None:
+                            capture_status = f"Capture: {status} car {car}" + (f" ({error})" if error else "")
                     elif kind == "display_error":
                         log("DISPLAY_FAILED", car=car, error=values[0])
             except queue.Empty:
@@ -299,12 +340,15 @@ def main():
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
                 command = car.command(raw, tick_start, settings["telemetry_stale_s"], settings["echo_stale_s"],
                                       model["connected"], joystick is not None, admin, selected, index + 1,
-                                      keyboard, args.stop_only or quitting or quit_pending)
+                                      keyboard, args.stop_only or quitting or quit_pending or capture_menu)
                 commands.append(command)
                 packet = car.packet
                 states.append({"car": index + 1, "admin": admin, "stop_only": args.stop_only,
                                "present": car.present, "selected": selected, "raw": raw,
                                "manual": bool(admin and keyboard[4]), "quit_pending": quit_pending,
+                               "capture_menu": capture_menu, "capture_car": capture_car,
+                               "capture_ui": capture_ui, "capture_request": capture_request,
+                               "capture_status": capture_status,
                                "global_status": f"Modem {config['port']}: {'connected' if model['connected'] else 'reconnecting'} | Gamepad: {'connected' if joystick else 'missing'}",
                                "global_counts": f"World States: {generated_total} | Skipped ticks: {skipped} | Invalid lines: {model['invalid_lines']}",
                                "feedback": f"Fresh ({tick_start-car.received:.2f}s)" if car.feedback_ok(tick_start, settings["telemetry_stale_s"]) else "Missing / stale",
@@ -386,7 +430,7 @@ def main():
             modem.close()
         stop.set()
         for player in players:
-            player.join(timeout=8)
+            player.join(timeout=14)  # Allow encoder flush plus camera cleanup.
             if player.is_alive():
                 player.terminate()  # Only a video process; never the I/O owner.
                 player.join(timeout=2)
