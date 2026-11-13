@@ -11,6 +11,7 @@ import ctypes as C
 import multiprocessing
 import os
 from pathlib import Path
+import sys
 import threading
 import time
 
@@ -294,17 +295,15 @@ def load_cameras():
     config = configparser.ConfigParser(interpolation=None)
     with CONFIG.open(encoding="utf-8") as source:
         config.read_file(source)
-    pygame.display.init()
-    try:
-        display_count = len(pygame.display.get_desktop_sizes())
-    finally:
-        pygame.display.quit()
+    sys.path.insert(0, str(CONFIG.parents[1]))
+    from game_controller.monitors import resolve_serials
+    indexes = resolve_serials([config.get(f"car_{car}_display", "monitor_text_serial") for car in range(1, 5)])
     cameras, used = [], set()
     for car in range(1, 5):
         url = config[f"car_{car}_camera"]["rtsp_url"].strip()
-        display = config.getint(f"car_{car}_display", "display_index")
-        if not url or not 0 <= display < display_count or display in used:
-            raise RuntimeError(f"Car {car}: check camera URL and unique, connected display index.")
+        display = indexes[car - 1]
+        if not url or display in used:
+            raise RuntimeError(f"Car {car}: check camera URL and unique, connected monitor serial.")
         used.add(display)
         cameras.append((car, url, display))
     return cameras

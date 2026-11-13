@@ -29,10 +29,10 @@ def load(address_path=None, game_path=None):
         raise ValueError("present_cars must contain car IDs 1-4")
     cameras, buttons, displays = [], [], set()
     for car in range(1, 5):
-        display = address.getint(f"car_{car}_display", "display_index")
-        if display < 0 or display in displays:
-            raise ValueError("Display indexes must be nonnegative and unique")
-        displays.add(display)
+        display = address.get(f"car_{car}_display", "monitor_text_serial").strip()
+        if not display or display.casefold() in displays:
+            raise ValueError("Monitor text serials must be nonempty and unique")
+        displays.add(display.casefold())
         url = address[f"car_{car}_camera"]["rtsp_url"].strip()
         if not url.startswith("rtsp://"):
             raise ValueError(f"Car {car}: invalid RTSP URL")

@@ -186,7 +186,8 @@ class ConfigTests(unittest.TestCase):
         config = load()
         self.assertEqual(config["present"], {1})
         self.assertEqual(config["settings"]["control_hz"], 50)
-        self.assertEqual([d for _, _, d in config["cameras"]], [2, 3, 0, 1])
+        self.assertEqual(len({serial.casefold() for _, _, serial in config["cameras"]}), 4)
+        self.assertTrue(all(serial for _, _, serial in config["cameras"]))
         self.assertEqual(config["bindings"]["toggle"], "K_SPACE")
 
 

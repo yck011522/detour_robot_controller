@@ -10,6 +10,7 @@ import configparser
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import threading
 
 import pygame
@@ -63,19 +64,10 @@ def main(stop_event=None):
         with CONFIG_PATH.open(encoding="utf-8") as source:
             config.read_file(source)
         url = config[f"car_{args.car}_camera"]["rtsp_url"]
-        # Each car uses its configured physical screen; SDL indexes start at zero.
-        display_section = f"car_{args.car}_display"
-        try:
-            display_index = config.getint(display_section, "display_index")
-        except ValueError as error:
-            raise RuntimeError(
-                f"[{display_section}] display_index must be an integer in {CONFIG_PATH}"
-            ) from error
-        if not 0 <= display_index < len(displays):
-            raise RuntimeError(
-                f"[{display_section}] display_index = {display_index} is unavailable; "
-                f"connected SDL display indexes are 0 through {len(displays) - 1}."
-            )
+        sys.path.insert(0, str(CONFIG_PATH.parents[1]))
+        from game_controller.monitors import resolve_serials
+        serial = config.get(f"car_{args.car}_display", "monitor_text_serial")
+        display_index = resolve_serials([serial])[0]
 
         screen = pygame.display.set_mode(SIZE, pygame.FULLSCREEN,
                                          display=display_index, vsync=0)

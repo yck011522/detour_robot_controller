@@ -13,6 +13,10 @@ Space toggles admin/player mode; Q opens Enter/Escape quit confirmation.
 Read [the M1 test guide](docs/M1_TEST_GUIDE.md) before supervised bench
 driving. Behavior settings are in `config/game_config.ini`; device addresses,
 ports, button/key and display mappings remain in `config/address.ini`.
+Monitors are selected by `monitor_text_serial`, resolved to the current SDL
+index at startup. Missing or ambiguous matches stop startup. To assign the four
+screens, close the controller and run `Calibrate Monitors.bat` in the project
+root; type the displayed letters in car 1 through car 4 order and press Enter.
 M1 does not connect to or command the UR robot or end effector.
 
 For an automated stop-only observation:

@@ -154,10 +154,10 @@ def main():
         # Hidden SDL event owner for HID only; all visible controls use the four displays.
         screen = pygame.display.set_mode((1, 1), pygame.HIDDEN)
         if not args.no_video:
-            count = len(pygame.display.get_desktop_sizes())
-            if any(display >= count for _, _, display in config["cameras"]):
-                raise RuntimeError(f"Configured screens unavailable; SDL reports {count} screens")
-            for car, url, display in config["cameras"]:
+            from .monitors import resolve_serials
+            indexes = resolve_serials([serial for _, _, serial in config["cameras"]])
+            for (car, url, serial), display in zip(config["cameras"], indexes):
+                log("MONITOR_RESOLVED", car=car, monitor_text_serial=serial, sdl_index=display)
                 channel = context.Queue(maxsize=1)
                 player = context.Process(target=play, args=(car, url, display, settings, channel, events, stop, keys), name=f"display-{car}")
                 player.start()
