@@ -1,0 +1,4 @@
+/cache/
+/results/*.png
+/results/source_hashes.json
+/results/source_hashes_reexport.json

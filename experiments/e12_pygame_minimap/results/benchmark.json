@@ -1,0 +1,255 @@
+{
+  "scope": "one instance; no four-display test",
+  "preparation_seconds": null,
+  "pygame": "2.6.1",
+  "sdl": [
+    2,
+    28,
+    4
+  ],
+  "desktop_sizes": [
+    [
+      2560,
+      1440
+    ],
+    [
+      960,
+      1707
+    ],
+    [
+      1707,
+      1067
+    ]
+  ],
+  "sizes": [
+    {
+      "target_size": 600,
+      "cache_load_seconds": 2.963321899995208,
+      "loaded_layer_mib": 382.8175239562988,
+      "techniques": {
+        "native_cached": {
+          "samples": 12,
+          "median_ms": 266.49845,
+          "p95_ms": 276.8588,
+          "max_ms": 276.8948,
+          "warmup_seconds": 6.5802751000155695
+        },
+        "size_cached": {
+          "samples": 1200,
+          "median_ms": 8.042950000000001,
+          "p95_ms": 9.7049,
+          "max_ms": 15.0707,
+          "warmup_seconds": 0.19430209998972714
+        },
+        "coins_grouped": {
+          "samples": 1200,
+          "median_ms": 6.27445,
+          "p95_ms": 7.4003,
+          "max_ms": 12.5134,
+          "warmup_seconds": 0.15365530000417493
+        },
+        "floor_cached": {
+          "samples": 1200,
+          "median_ms": 1.6256499999999998,
+          "p95_ms": 2.0468,
+          "max_ms": 2.8894,
+          "warmup_seconds": 0.09046339997439645
+        }
+      },
+      "floor_cache_cold_median_ms": 11.236049999999999,
+      "floor_cache_mib": 70.037841796875,
+      "visual_errors": {
+        "native_cached_car1": {
+          "rgba_identical": true,
+          "mean_absolute_rgb_error": 0.0,
+          "max_channel_error": 0,
+          "pixels_with_channel_error_over_8_percent": 0.0
+        },
+        "size_cached_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.04567314814814815,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.01972222222222222
+        },
+        "coins_grouped_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.04567314814814815,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.01972222222222222
+        },
+        "floor_cached_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.04565555555555555,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.01972222222222222
+        },
+        "native_cached_car4": {
+          "rgba_identical": true,
+          "mean_absolute_rgb_error": 0.0,
+          "max_channel_error": 0,
+          "pixels_with_channel_error_over_8_percent": 0.0
+        },
+        "size_cached_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.05609537037037037,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.006388888888888889
+        },
+        "coins_grouped_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.05609537037037037,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.006388888888888889
+        },
+        "floor_cached_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.05606944444444444,
+          "max_channel_error": 23,
+          "pixels_with_channel_error_over_8_percent": 0.006666666666666667
+        }
+      },
+      "synthetic_yuv_overlay": {
+        "renderer": "direct3d",
+        "scope": "1920x1080 synthetic YUV uploads; no decode/network; unpaced present timings",
+        "upload_every_frame": {
+          "median_ms": 2.0462499999999997,
+          "p95_ms": 3.0432,
+          "max_ms": 5.0359,
+          "samples": 1200
+        },
+        "upload_on_change": {
+          "median_ms": 0.6572,
+          "p95_ms": 1.0423,
+          "max_ms": 1.5421,
+          "samples": 1200
+        },
+        "paced_60hz_with_tag_change_every_frame": {
+          "frames": 600,
+          "elapsed_seconds": 9.98833900000318,
+          "median_work_ms": 4.200800001854077,
+          "p95_work_ms": 6.017400010023266,
+          "max_work_ms": 10.076100006699562,
+          "deadline_misses": 0
+        }
+      }
+    },
+    {
+      "target_size": 700,
+      "cache_load_seconds": 3.0944162999803666,
+      "loaded_layer_mib": 385.8763999938965,
+      "techniques": {
+        "native_cached": {
+          "samples": 12,
+          "median_ms": 267.02835000000005,
+          "p95_ms": 269.6543,
+          "max_ms": 271.9035,
+          "warmup_seconds": 6.6113524999818765
+        },
+        "size_cached": {
+          "samples": 1200,
+          "median_ms": 10.07325,
+          "p95_ms": 11.8503,
+          "max_ms": 22.9008,
+          "warmup_seconds": 0.25029679998988286
+        },
+        "coins_grouped": {
+          "samples": 1200,
+          "median_ms": 8.31325,
+          "p95_ms": 9.6137,
+          "max_ms": 13.5277,
+          "warmup_seconds": 0.21740219998173416
+        },
+        "floor_cached": {
+          "samples": 1200,
+          "median_ms": 2.1361,
+          "p95_ms": 2.5607,
+          "max_ms": 3.6775,
+          "warmup_seconds": 0.11780110001564026
+        }
+      },
+      "floor_cache_cold_median_ms": 13.440100000000001,
+      "floor_cache_mib": 95.32928466796875,
+      "visual_errors": {
+        "native_cached_car1": {
+          "rgba_identical": true,
+          "mean_absolute_rgb_error": 0.0,
+          "max_channel_error": 0,
+          "pixels_with_channel_error_over_8_percent": 0.0
+        },
+        "size_cached_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.043187074829931976,
+          "max_channel_error": 27,
+          "pixels_with_channel_error_over_8_percent": 0.014693877551020407
+        },
+        "coins_grouped_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.043187074829931976,
+          "max_channel_error": 27,
+          "pixels_with_channel_error_over_8_percent": 0.014693877551020407
+        },
+        "floor_cached_car1": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.043217006802721086,
+          "max_channel_error": 28,
+          "pixels_with_channel_error_over_8_percent": 0.014693877551020407
+        },
+        "native_cached_car4": {
+          "rgba_identical": true,
+          "mean_absolute_rgb_error": 0.0,
+          "max_channel_error": 0,
+          "pixels_with_channel_error_over_8_percent": 0.0
+        },
+        "size_cached_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.05430952380952381,
+          "max_channel_error": 27,
+          "pixels_with_channel_error_over_8_percent": 0.005510204081632653
+        },
+        "coins_grouped_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.05430952380952381,
+          "max_channel_error": 27,
+          "pixels_with_channel_error_over_8_percent": 0.005510204081632653
+        },
+        "floor_cached_car4": {
+          "rgba_identical": false,
+          "mean_absolute_rgb_error": 0.054289115646258504,
+          "max_channel_error": 27,
+          "pixels_with_channel_error_over_8_percent": 0.005510204081632653
+        }
+      },
+      "synthetic_yuv_overlay": {
+        "renderer": "direct3d",
+        "scope": "1920x1080 synthetic YUV uploads; no decode/network; unpaced present timings",
+        "upload_every_frame": {
+          "median_ms": 2.54655,
+          "p95_ms": 3.5387,
+          "max_ms": 5.7056,
+          "samples": 1200
+        },
+        "upload_on_change": {
+          "median_ms": 0.80615,
+          "p95_ms": 1.3765,
+          "max_ms": 1.8253,
+          "samples": 1200
+        },
+        "paced_60hz_with_tag_change_every_frame": {
+          "frames": 600,
+          "elapsed_seconds": 9.988430099998368,
+          "median_work_ms": 4.7222499997587875,
+          "p95_work_ms": 7.382599986158311,
+          "max_work_ms": 12.165100022684783,
+          "deadline_misses": 0
+        }
+      }
+    }
+  ],
+  "initial_cache_preparation_seconds": 144.71,
+  "original_asset_hashes_verified_unchanged": 650,
+  "reduced_layer_storage_mib": {
+    "600": 8.59860610961914,
+    "700": 11.657482147216797
+  },
+  "cache_disk_mib": 9.382316589355469
+}
