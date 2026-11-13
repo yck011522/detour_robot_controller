@@ -24,12 +24,12 @@ import hold_to_run as e12
 import tool_test as e10
 
 # Experiment-local settings, displayed before enabling movement.
-FORCE_N = 4.90
+FORCE_N = 10.0
 POSITION_TOLERANCE_M = .0005
 MAX_XY_DRIFT_M = .010
 CHECK_XY_DRIFT = False  # Temporary hand-held fixture test; restore for fixed fixture.
 MAX_Z_OVERTRAVEL_M = .010
-FORCE_SPEED_M_S = .003
+FORCE_SPEED_M_S = .005
 HEARTBEAT_LIMIT_S = .25
 TOOL_REPLY_LIMIT_S = .12
 PERIOD_S = .02
@@ -164,9 +164,23 @@ class Hardware:
             raise RuntimeError("Cannot enable robot watchdog")
         self.last_timestamp = self.receiver.getTimestamp()
         self.fresh_at = time.monotonic()
-        self.log.write("PREPARED", poses=self.poses, joints=self.joints)
+        self.log.write("PREPARED", poses=self.poses, joints=self.joints,
+                       force_n=FORCE_N, force_speed_m_s=FORCE_SPEED_M_S,
+                       low_offset_m=e12.LOW_OFFSET_M, payloads=self.payloads,
+                       force_task_frame=[0]*6, force_type=2, selection_vector=[1,1,1,0,0,0],
+                       position_tolerance_m=POSITION_TOLERANCE_M,
+                       overtravel_margin_m=MAX_Z_OVERTRAVEL_M, xy_check_enabled=CHECK_XY_DRIFT,
+                       max_xy_drift_m=MAX_XY_DRIFT_M, orientation_limit_deg=3.0,
+                       joint_tolerance_rad=e12.JOINT_TOLERANCE,
+                       heartbeat_limit_s=HEARTBEAT_LIMIT_S, feedback_limit_s=.2,
+                       tool_reply_limit_s=TOOL_REPLY_LIMIT_S, watchdog_min_hz=3.0)
 
     def payload(self, name):
+        # Capture contact/load context: changing payload can alter the FT baseline.
+        if self.receiver:
+            self.log.write("PAYLOAD_BEFORE", name=name, tcp_force=list(self.receiver.getActualTCPForce()),
+                           tcp_pose=list(self.receiver.getActualTCPPose()),
+                           controller_timestamp=self.receiver.getTimestamp())
         mass, cog = self.payloads[name]
         if not self.control.setPayload(mass, cog):
             raise RuntimeError("Payload command rejected")
@@ -197,6 +211,27 @@ class Hardware:
         for values in (self.receiver.getActualQ(), self.receiver.getActualQd(), self.receiver.getActualTCPPose()):
             if not e12.finite_six(values):
                 raise RuntimeError("Invalid robot feedback")
+
+    def log_fault_snapshot(self, operation=None):
+        """Read-only best effort; a failed measurement must not prevent STOP."""
+        data = {}
+        if operation:
+            data.update(action=operation.action.label, kind=operation.action.kind,
+                        start_pose=operation.start_pose,
+                        target_pose=self.poses.get(operation.action.point),
+                        target_joints=self.joints.get(operation.action.point),
+                        stalled=operation.stalled, motor_state=operation.motor_state)
+        if self.receiver:
+            for name, method in (("tcp_pose", "getActualTCPPose"), ("tcp_force", "getActualTCPForce"),
+                                 ("joints", "getActualQ"), ("joint_velocity", "getActualQd"),
+                                 ("tcp_speed", "getActualTCPSpeed"), ("timestamp", "getTimestamp"),
+                                 ("safety_mode", "getSafetyMode"), ("robot_mode", "getRobotMode"),
+                                 ("payload_kg", "getPayload"), ("payload_cog_m", "getPayloadCog")):
+                try:
+                    data[name] = getattr(self.receiver, method)()
+                except Exception as error:
+                    data[name + "_error"] = str(error)
+        self.log.write("FAULT_SNAPSHOT", **data)
 
     def halt(self):
         # Try both stops even if either communication path fails.
@@ -238,6 +273,11 @@ class Hardware:
                     if not e12.finite_six(qd) or time.monotonic() - self.fresh_at > .2:
                         raise RuntimeError("Cannot confirm stop from stale/invalid feedback")
                     settled = settled + 1 if max(map(abs, qd)) < .005 else 0
+                    self.log.write("STOP_SAMPLE", joint_velocity=qd, stationary_samples=settled,
+                                   required_samples=3, velocity_limit_rad_s=.005,
+                                   remaining_s=max(0,deadline-time.monotonic()), deadline_s=3)
+                    self.report(f"Stopping: joint speed {max(map(abs,qd)):.5f} / <0.00500 rad/s; "
+                                f"stationary samples {settled}/3; remaining {max(0,deadline-time.monotonic()):.2f}/3 s")
                     if time.monotonic() > deadline:
                         raise RuntimeError("Robot stop unconfirmed")
                     time.sleep(PERIOD_S)
@@ -260,6 +300,11 @@ class Hardware:
             if stamp != previous:
                 samples += 1
                 previous = stamp
+            self.log.write("RECOVERY_SAMPLE", joint_velocity=qd, fresh_stationary_samples=samples,
+                           required_samples=3, velocity_limit_rad_s=.005,
+                           remaining_s=max(0,deadline-time.monotonic()), deadline_s=2)
+            self.report(f"Recovery: joint speed {max(map(abs,qd)):.5f} / <0.00500 rad/s; "
+                        f"fresh stationary samples {samples}/3; remaining {max(0,deadline-time.monotonic()):.2f}/2 s")
             if time.monotonic() > deadline:
                 raise RuntimeError("Robot feedback is not updating")
             time.sleep(PERIOD_S)
@@ -292,16 +337,24 @@ class Operation:
         self.action, self.hw = action, hw
         self.start_pose = list(hw.receiver.getActualTCPPose())
         self.stalled = False
-        self.z_holding = False
         self.last_poll = 0.0
+        self.last_debug = 0.0
+        self.motor_state = "not sampled"
+        self.motor_current = self.motor_pwm = None
+        self.debug = ""
         self.running = False
 
     def start(self):
         h, a = self.hw, self.action
         h.motion_kind = "J" if a.kind in ("J", "INITIAL") else "L"
-        self.z_holding = False
         if a.kind == "UP" and a.motor:
             h.payload("tool_only" if a.motor == 1 else "tool_with_floor")
+        if a.kind != "J":
+            self.hw.log.write("ACTION_BASELINE", action=a.label,
+                              tcp_pose=list(h.receiver.getActualTCPPose()),
+                              tcp_force=list(h.receiver.getActualTCPForce()),
+                              start_pose=self.start_pose, target_pose=h.poses[a.point],
+                              controller_timestamp=h.receiver.getTimestamp())
         if a.motor and not self.stalled:
             command = f"{'LOOSEN' if a.kind == 'UP' else 'TIGHTEN'} M{a.motor}"
             h.tool.command(command, "OK " + command)
@@ -312,25 +365,79 @@ class Operation:
         self.running = True
         h.log.write("ACTION_START", action=a.label, stalled=self.stalled)
 
-    def force(self, z_hold):
+    def force(self):
         h = self.hw
         h.force_active = True
-        selection = [1, 1, 0 if z_hold else 1, 0, 0, 0]
-        z_force = 0 if z_hold else FORCE_N if self.action.kind == "UP" else -FORCE_N
-        if not h.control.forceMode([0]*6, selection, [0,0,z_force,0,0,0], 2,
+        z_force = FORCE_N if self.action.kind == "UP" else -FORCE_N
+        if not h.control.forceMode([0]*6, [1,1,1,0,0,0], [0,0,z_force,0,0,0], 2,
                                    [FORCE_SPEED_M_S]*3 + [math.radians(2)]*3):
             raise RuntimeError("forceMode rejected")
+
+    def diagnostics(self, pose, now, force=False):
+        if not force and now - self.last_debug < .2:
+            return
+        h, a = self.hw, self.action
+        target_z = h.poses[a.point][2]
+        wrench = list(h.receiver.getActualTCPForce())
+        requested_fz = 0 if a.kind == "INITIAL" else FORCE_N if a.kind == "UP" else -FORCE_N
+        error_mm = (pose[2] - target_z) * 1000
+        lower = min(self.start_pose[2], target_z) - MAX_Z_OVERTRAVEL_M
+        upper = max(self.start_pose[2], target_z) + MAX_Z_OVERTRAVEL_M
+        angle = math.degrees(e12.orientation_distance(pose[3:], self.start_pose[3:]))
+        xy = math.dist(pose[:2], self.start_pose[:2])*1000
+        displacement = [(v-start)*1000 for v,start in zip(pose[:3],self.start_pose[:3])]
+        tcp_speed = list(h.receiver.getActualTCPSpeed())
+        lateral_force = math.hypot(wrench[0], wrench[1])
+        completion = (f"wait M{a.motor} STALLED (Z is reference only)" if a.kind == "DOWN" and a.motor else
+                      f"wait Z error <= {POSITION_TOLERANCE_M*1000:.1f} mm")
+        lines = [f"{completion} | stall latched {int(self.stalled)} / required 1",
+                 f"Z {pose[2]*1000:.2f} / reference {target_z*1000:.2f} mm; error {error_mm:+.2f} mm",
+                 f"Z allowed [{lower*1000:.2f}, {upper*1000:.2f}] mm; orientation {angle:.2f} / max 3 deg",
+                 f"XY drift {xy:.2f} / max {MAX_XY_DRIFT_M*1000:.1f} mm ({'ON' if CHECK_XY_DRIFT else 'DISABLED'})",
+                 f"Fz request {requested_fz:+.1f} / feedback {wrench[2]:+.2f} N; speed cap {FORCE_SPEED_M_S*1000:.1f} mm/s",
+                 f"M{a.motor} {self.motor_state}; current {self.motor_current} mA; PWM {self.motor_pwm} %"]
+        if a.kind == "INITIAL":
+            drift = math.dist(pose[:3], self.start_pose[:3])*1000
+            lines[0] = f"wait M{a.motor} STALLED: latched {int(self.stalled)} / required 1"
+            lines.append(f"Initial position drift {drift:.3f} / max 1.000 mm; rotation {angle:.3f} / max 1.000 deg")
+        lines.append(f"Fx/Fy {wrench[0]:+.2f}/{wrench[1]:+.2f} N (request 0/0); "
+                     f"dX/dY {displacement[0]:+.2f}/{displacement[1]:+.2f} mm")
+        self.debug = "\n".join(lines)
+        h.log.write("OPERATION_SAMPLE", action=a.label, tcp_pose=pose, tcp_force=wrench,
+                    motor_current_ma=self.motor_current, motor_pwm_percent=self.motor_pwm,
+                    controller_timestamp=h.receiver.getTimestamp(), tcp_speed=tcp_speed,
+                    displacement_mm=displacement, lateral_force_n=lateral_force,
+                    requested_wrench=[0,0,requested_fz,0,0,0],
+                    force_task_frame=[0]*6, force_type=2, selection_vector=[1,1,1,0,0,0],
+                    position_tolerance_m=POSITION_TOLERANCE_M, max_xy_drift_m=MAX_XY_DRIFT_M,
+                    xy_check_enabled=CHECK_XY_DRIFT, orientation_limit_deg=3.0,
+                    force_speed_limit_m_s=FORCE_SPEED_M_S, overtravel_margin_m=MAX_Z_OVERTRAVEL_M,
+                    target_z=target_z, z_error_mm=error_mm, requested_fz=requested_fz,
+                    motor_state=self.motor_state, stalled=self.stalled,
+                    lower_z=lower, upper_z=upper, orientation_drift_deg=angle, xy_drift_mm=xy)
+        self.last_debug = now
 
     def tick(self):
         h, a = self.hw, self.action
         now = time.monotonic()
         pose = list(h.receiver.getActualTCPPose())
         if a.kind == "J":
-            done = (max(abs(x-y) for x,y in zip(h.receiver.getActualQ(), h.joints[a.point])) <= e12.JOINT_TOLERANCE
-                    and not h.control.getAsyncOperationProgressEx().isAsyncOperationRunning()
-                    and max(map(abs, h.receiver.getActualQd())) < .005)
-            return done
+            joints = list(h.receiver.getActualQ())
+            errors = [abs(x-y) for x,y in zip(joints, h.joints[a.point])]
+            moving = h.control.getAsyncOperationProgressEx().isAsyncOperationRunning()
+            velocity = max(map(abs, h.receiver.getActualQd()))
+            if now - self.last_debug >= .2:
+                self.debug = (f"Joint max error {math.degrees(max(errors)):.3f} / max {math.degrees(e12.JOINT_TOLERANCE):.3f} deg; "
+                              f"speed {velocity:.5f} / required <0.00500 rad/s; async running {int(moving)} / required 0\n"
+                              "Joints actual deg: " + ", ".join(f"{math.degrees(x):.2f}" for x in joints) + "\n"
+                              "Joints target deg: " + ", ".join(f"{math.degrees(x):.2f}" for x in h.joints[a.point]))
+                h.log.write("JOINT_SAMPLE", action=a.label, joints=joints, target=h.joints[a.point],
+                            max_error_rad=max(errors), max_velocity_rad_s=velocity, async_running=moving,
+                            joint_tolerance_rad=e12.JOINT_TOLERANCE, velocity_limit_rad_s=.005)
+                self.last_debug = now
+            return max(errors) <= e12.JOINT_TOLERANCE and not moving and velocity < .005
         target = h.poses[a.point]
+        self.diagnostics(pose, now)
         if CHECK_XY_DRIFT and math.dist(pose[:2], self.start_pose[:2]) > MAX_XY_DRIFT_M:
             raise RuntimeError("XY travel bound exceeded")
         lower = min(self.start_pose[2], target[2]) - MAX_Z_OVERTRAVEL_M
@@ -350,6 +457,8 @@ class Operation:
             self.last_poll = now
             h.log.write("MOTOR_STATUS", **sample)
             own, other = sample["states"][a.motor-1], sample["states"][2-a.motor]
+            self.motor_state = own
+            self.motor_current, self.motor_pwm = sample.get("current_ma"), sample.get("pwm_percent")
             if other != "IDLE":
                 raise RuntimeError("Other motor unexpectedly active")
             if own == "STALLED":
@@ -364,23 +473,14 @@ class Operation:
             if not e12.pose_close(pose, self.start_pose, .001, math.radians(1)):
                 raise RuntimeError("Robot drifted during initial grip confirmation")
             return self.stalled
-        if reached or a.kind == "GRIP":
-            if not self.z_holding:
-                # Establish a commanded TARGET Z while keeping actual X/Y.
-                # Subsequent force mode makes only X/Y compliant. This hybrid
-                # transition requires the documented supervised live acceptance.
-                self.force(True)
-                reference = pose[:]
-                reference[2] = target[2]
-                if not h.control.moveL(reference, e12.LINEAR_SPEED, e12.LINEAR_ACCELERATION, True):
-                    raise RuntimeError("Z hold reference rejected")
-                self.z_holding = True
-            self.force(True)
-        else:
-            if self.z_holding:
-                raise RuntimeError("Z drifted out of holding tolerance")
-            self.force(False)
-        return reached and (a.kind == "UP" or not a.motor or self.stalled)
+        # Tightening completion depends on the motor stall, not TARGET Z.
+        # Keep Z compliant throughout; no positional moveL or hold transition.
+        done = self.stalled if a.kind == "DOWN" and a.motor else reached
+        self.diagnostics(pose, now, force=done)
+        if not done:
+            self.force()
+        return done
+
 
 
 def worker(commands, events, live):
@@ -507,8 +607,16 @@ def worker(commands, events, live):
                             operation.running = True
                             operation.finish_at = time.monotonic() + 1
                         report(operation.action.label + " — release to stop", "running")
+                if hw and time.monotonic() - getattr(hw, "last_monitor_sent", 0) >= .2:
+                    events.put(dict(monitor=f"UI heartbeat age {(time.monotonic()-fresh_at)*1000:.0f} / max {HEARTBEAT_LIMIT_S*1000:.0f} ms; "
+                                    f"feedback age {(time.monotonic()-hw.fresh_at)*1000:.0f} / max 200 ms; watchdog >=3 Hz"))
+                    hw.last_monitor_sent = time.monotonic()
                 if operation and operation.running:
                     done = operation.tick() if hw else time.monotonic() >= operation.finish_at
+                    if hw and operation.debug:
+                        if time.monotonic() - getattr(operation, "last_debug_sent", 0) >= .2:
+                            events.put(dict(debug=operation.debug))
+                            operation.last_debug_sent = time.monotonic()
                     if done:
                         if hw:
                             hw.halt()
@@ -524,12 +632,19 @@ def worker(commands, events, live):
                 if operation:
                     operation.running = False
                 log.write("FAULT", error=str(error), state=state)
+                if hw:
+                    try:
+                        hw.log_fault_snapshot(operation)
+                    except Exception as snapshot_error:
+                        log.write("FAULT_SNAPSHOT_ERROR", error=str(snapshot_error))
                 stop_error = ""
                 if hw:
                     try:
                         hw.halt()
                     except Exception as stop:
                         stop_error = "; STOP unconfirmed: " + str(stop)
+                if hw and operation and operation.debug:
+                    events.put(dict(debug=operation.debug))
                 report("Fault: " + str(error) + stop_error + ". Use Retry or Skip after checking the setup.", "fault")
 
     except Exception as error:
@@ -557,7 +672,7 @@ def main():
     os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
     import pygame
     pygame.init()
-    screen = pygame.display.set_mode((1080, 590))
+    screen = pygame.display.set_mode((1080, 930))
     pygame.display.set_caption("E13 — supervised pick and place" + (" LIVE" if args.live else " OFFLINE PREVIEW"))
     font, small = pygame.font.Font(None, 30), pygame.font.Font(None, 24)
     commands, events = mp.Queue(), mp.Queue()
@@ -619,7 +734,7 @@ def main():
                             direction = 0
             while True:
                 try:
-                    status = events.get_nowait()
+                    status.update(events.get_nowait())
                 except queue.Empty:
                     break
             selected = next((rect for rect,d,_ in buttons if d == direction), None)
@@ -650,8 +765,11 @@ def main():
             pygame.draw.rect(screen, (45,135,75) if home_confirmed else (110,110,110), home_check, 0 if home_confirmed else 2)
             text("Tool disengaged; HOME path clear", 775,440,285)
             text("Completed: release and click again. Direct HOME abandons routine; restart to reset attachment state.",25,480)
-            text("Force: +/-4.90 N | XY drift check: DISABLED | Z overtravel: 10 mm | Z tolerance: 0.5 mm | Q: quit",25,510)
+            text("Force: +/-10 N | XY drift check: DISABLED | Z overtravel: 10 mm | Withdrawal Z tolerance: 0.5 mm | Q: quit",25,510)
             text("Software hold control is not a certified enabling device. Keep pendant and tool power stop available.",25,540)
+            text(status.get("monitor", ""), 25, 565)
+            for row, line in enumerate(status.get("debug", "").splitlines()):
+                text(line, 25, 600 + row*30)
             pygame.display.flip()
             if not process.is_alive():
                 if closing:

@@ -114,7 +114,7 @@ diagnostic coupling; the cause of the control-program change is not established.
 
 ## Forward cycle
 
-HOME, HIGH and TARGET are the taught E12 positions. LOW is TARGET plus 20 mm
+HOME, HIGH and TARGET are the taught E12 positions. LOW is TARGET plus 10 mm
 along base Z, with the same orientation. All force directions below are base-frame
 directions; X/Y compliance means zero commanded lateral force, not a programmed
 lateral search. Hold orientation throughout force operations.
@@ -123,11 +123,11 @@ lateral search. Hold orientation throughout force operations.
 | --- | --- | --- |
 | -1 to 0 | At HOME, tighten M1 | Fresh M1 stall |
 | 0 to 1 to 2 | HOME to HIGH to LOW, fresh press per leg | Joint arrival, async move finished, stationary |
-| 2 to 3 | Descend and tighten M2 simultaneously | TARGET Z and fresh M2 stall; then tool-only payload |
+| 2 to 3 | Descend and tighten M2 simultaneously | Fresh M2 stall (no Z hold); then tool-only payload |
 | 3 to 4 | Loosen M1 and withdraw simultaneously | LOW Z |
 | 4 to 5 to 6 | LOW to HIGH to HOME, fresh press per leg | Joint arrival, async move finished, stationary |
 | 6 to 7 to 8 | HOME to HIGH to LOW, fresh press per leg | Joint arrival, async move finished, stationary |
-| 8 to 9 | Descend and tighten M1 simultaneously | TARGET Z and fresh M1 stall; then tool-with-floor payload |
+| 8 to 9 | Descend and tighten M1 simultaneously | Fresh M1 stall (no Z hold); then tool-with-floor payload |
 | 9 to 10 | Loosen M2 and withdraw simultaneously | LOW Z |
 | 10 to 11 to 12 | LOW to HIGH to HOME, fresh press per leg | Joint arrival, async move finished, stationary |
 
@@ -139,23 +139,15 @@ Do not zero the force sensor against an external contact to hide that load.
 ## Force/position transition
 
 During descent, selection [1,1,1,0,0,0] permits translation under the requested
-downward force. Once TARGET Z is reached, remove downward force and change to
-X/Y compliance with position-controlled Z/orientation: [1,1,0,0,0,0]. Explicitly
-establish the intended Z position reference, rather than assuming a selection
-change alone sets TARGET Z. If M2 stalls first, stop that motor and continue
-the held descent until Z also qualifies. If Z qualifies first, maintain Z with
-X/Y compliance while waiting for M2 stall. Latch both completion conditions
-within that operation; do not reuse an old stall from a previous operation.
+downward force. Continue Z-compliant descent until the tightening motor reports
+STALLED (M2 for placement, M1 for pickup), then stop both robot and tool and
+apply the payload transition. TARGET Z is a reference for travel bounds, not
+a completion requirement. No Z-hold moveL or 0.5 mm hold-drift fault remains.
+A stall before TARGET is also completion. The 10 mm overtravel margin remains
+active, along with orientation, feedback, heartbeat and motor-state checks.
 
-The implementation issues a short asynchronous moveL Z reference while X/Y
-remain compliant, and reapplies force mode on subsequent worker cycles. This
-hybrid transition is implemented but must be supervised during live acceptance;
-offline tests prove command sequencing, not the controller's physical response.
-The first live descent should be tested without engaging the screw and with the
-pendant stop available before attempting the full coupled operation.
-
-Experiment-local constants at the top of the script: force 4.90 N, translational
-force speed limit 3 mm/s, XY drift threshold 10 mm (temporarily DISABLED), Z overtravel 10 mm, Z arrival
+Experiment-local constants at the top of the script: force 10 N, translational
+force speed limit 5 mm/s, XY drift threshold 10 mm (temporarily DISABLED), Z overtravel 10 mm, withdrawal Z arrival
 tolerance 0.5 mm, and orientation drift limit 3 degrees. Travel bounds remain
 relative to the original action start across pauses. MoveJ remains 5 degrees/s.
 Controller force-mode speed limits are not absolute travel bounds; the worker
@@ -164,7 +156,7 @@ before live use; exceeding bounds faults the session.
 
 ## Concurrent loosening and withdrawal
 
-For withdrawal transitions 3 to 4 and 9 to 10, apply +4.90 N along base Z, with zero requested X/Y force
+For withdrawal transitions 3 to 4 and 9 to 10, apply +10 N along base Z, with zero requested X/Y force
 and orientation held. Keep the relevant motor loosening while the operator
 holds the button. Actual TCP feedback reaching LOW Z within the chosen tolerance
 is the agreed release completion criterion: no extra disengagement sensor,
@@ -247,3 +239,38 @@ protective stop. Retry also services the watchdog while checking stationary feed
 Z_OVERTRAVEL now records actual/start/target/bound heights and TCP force.
 The Z overtravel margin is now 10 mm on either side of the start-to-target interval. See [checks and errors](CHECKS_AND_ERRORS.md).
 
+
+## Live operation diagnostics
+
+The expanded UI shows the current action's measured values and requirements:
+
+- Joint moves: six actual/target joint angles, maximum error versus 0.25 degrees,
+  maximum joint speed versus 0.005 rad/s, and async running flag versus zero.
+- Descent/tightening: actual/reference Z and error, explicit stall-only completion,
+  motor state/current/PWM and stall latch (0 or 1; required 1).
+- Withdrawal: actual/target Z and error versus 0.5 mm arrival tolerance.
+- Force actions: requested/measured Fz, 5 mm/s commanded speed cap, actual Z versus
+  allowed travel interval, orientation drift versus 3 degrees, XY drift versus
+  10 mm with the current DISABLED status.
+- Initial grip: position/orientation drift versus 1 mm / 1 degree and stall latch.
+- Runtime: heartbeat age versus 250 ms, feedback age versus 200 ms, watchdog rate.
+- Stop/recovery: actual joint speed, required three stationary samples and remaining
+  time versus the three-second stop or two-second recovery deadline.
+
+OPERATION_SAMPLE / JOINT_SAMPLE record measurements every 200 ms. Values remain
+as the last sampled snapshot while paused/faulted. They are not refreshed live
+in that state. Current/PWM are motor observations, not completion thresholds.
+Force requests are +/-10 N; measured force is not a separate completion gate.
+Tightening runs until the relevant motor stalls, with no Z hold. The 10 mm
+travel margin remains active. Sixteen offline tests pass; this update has not
+been exercised on the connected robot.
+
+Numerical log coverage: PREPARED includes runtime thresholds and waypoints;
+OPERATION_SAMPLE/JOINT_SAMPLE include measurements and their limits (5 Hz);
+STOP_SAMPLE/RECOVERY_SAMPLE include velocity, sample counts and deadlines.
+FAULT_SNAPSHOT takes a best-effort immediate read before fault cleanup of TCP
+pose/force/speed, joints/velocities, timestamp, robot/safety mode and payload,
+plus the selected action's start/target. Missing readings get per-field errors
+without preventing STOP. Existing logs are unchanged; restart for this schema.
+
+Current approach/withdrawal settings: LOW = TARGET +10 mm base Z; compliant translation speed cap 5 mm/s; force +/-10 N. See [drift diagnosis and next-run logging](DRIFT_DIAGNOSIS.md). E12 shares the LOW offset. Eighteen offline tests pass.

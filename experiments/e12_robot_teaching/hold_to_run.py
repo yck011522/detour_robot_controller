@@ -28,7 +28,7 @@ TAUGHT_TCP = {
     "HIGH": [-0.41571473, -0.47415838, 0.02646051, 3.1196073, -0.08983742, -0.15243114],
     "HOME": [-0.49000971, -0.53404338, 0.70061497, 1.42070816, -0.60378831, -0.63670203],
 }
-LOW_OFFSET_M = .020  # Base-frame +Z, not tool-local Z.
+LOW_OFFSET_M = .010  # Base-frame +Z, not tool-local Z.
 JOINT_SPEED = math.radians(5)
 JOINT_ACCELERATION = math.radians(10)
 LINEAR_SPEED = .005

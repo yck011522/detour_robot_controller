@@ -11,7 +11,7 @@ This is a software check inventory, not a certified safety specification.
 | Connect | Remote control, RUNNING robot, NORMAL safety, no running program | Reject connection on unexpected reply |
 | Initial stationarity | Finite six joint velocities; max absolute velocity <= 0.01 rad/s | Reject preparation |
 | Taught poses | FK within 1 mm and 1 degree of saved TCP; finite vectors | Reject preparation |
-| LOW solution | TARGET +20 mm base Z; IK exists, within 15 degrees per joint of TARGET; controller joint/pose limits pass | Reject preparation |
+| LOW solution | TARGET +10 mm base Z; IK exists, within 15 degrees per joint of TARGET; controller joint/pose limits pass | Reject preparation |
 | Payload | Positive finite mass and finite CoG; setPayload accepted | Fault on invalid/rejected command |
 | HOME recognition | Each joint within 0.25 degrees of HOME | Otherwise only direct HOME permitted |
 | UI intent | Heartbeat <250 ms old; confirmation, focus and held mouse over button | Release/focus loss pauses; stale heartbeat faults |
@@ -21,10 +21,10 @@ This is a software check inventory, not a certified safety specification.
 | Z travel | Between min(start Z, target Z)-10 mm and max(start Z, target Z)+10 mm | Z overtravel fault, either direction |
 | XY travel | Distance from action start <=10 mm | Temporarily DISABLED by CHECK_XY_DRIFT=False |
 | Orientation | Rotation difference from action start <=3 degrees | Fault |
-| Z arrival | Absolute Z error <=0.5 mm | Establish Z-hold reference; drift outside this tolerance later faults |
-| Force command | +/-4.90 N base Z, 3 mm/s translational limits, 2 degrees/s rotational limits | Controller command rejection faults; these are command settings, not measured-force thresholds |
+| Z arrival | Withdrawal absolute Z error <=0.5 mm | Completes withdrawal only; no hold-drift check on tightening |
+| Force command | +/-10 N base Z, 5 mm/s on compliant translations; 2 degrees deviation on held rotations | Controller command rejection faults; these are command settings, not measured-force thresholds |
 | Motor status | Other motor IDLE; own motor expected TIGHTENING/LOOSENING or permitted tightening STALLED | Unexpected states fault; loosening stall faults |
-| Tightening completion | Fresh STALLED observation plus TARGET Z | No fixed tightening timeout; stall survives pause/resume |
+| Tightening completion | Fresh STALLED observation; TARGET Z is not required | No fixed tightening timeout; stall survives pause/resume |
 | Withdrawal completion | LOW Z within 0.5 mm | Height is the release proxy; no independent disengagement sensor |
 | Initial M1 grip | TCP stays within 1 mm / 1 degree of starting pose; fresh stall | Fault on drift; no force or movement enabled |
 | STOP | Tool IDLE/IDLE and PWM 0; stop robot before forceModeStop; 3 stationary velocity samples, fresh finite feedback, within 3 seconds | Aggregate failures as STOP UNCONFIRMED; attempt robot stop even if tool stop fails |
@@ -95,7 +95,6 @@ exceptions are additional possible failures.
 | tick | `RuntimeError('Loosening motor stalled before withdrawal completed')` |
 | tick | `RuntimeError('Unexpected motor state: ' + own)` |
 | tick | `RuntimeError('Robot drifted during initial grip confirmation')` |
-| tick | `RuntimeError('Z hold reference rejected')` |
 | tick | `RuntimeError('Z drifted out of holding tolerance')` |
 | worker | `RuntimeError('No selected step to skip; choose a direction first')` |
 | worker | `RuntimeError('UI heartbeat expired')` |
@@ -111,3 +110,5 @@ exceptions are additional possible failures.
 
 E13 does not call E10's standalone power/brake/configuration, voltage-setting,
 serial or diagnostic-test routines; their unrelated exceptions are excluded.
+
+Live UI and OPERATION_SAMPLE logs now expose Z error, goal, requested/feedback Fz and last polled motor state. The Z-hold transition and its drift exception have been removed.

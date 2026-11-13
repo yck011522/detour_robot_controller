@@ -24,6 +24,8 @@ class FakeHardware:
         class Receiver:
             def getActualTCPPose(self): return outer.pose[:]
             def getActualTCPForce(self): return [0]*6
+            def getActualTCPSpeed(self): return [0]*6
+            def getTimestamp(self): return time.monotonic()
         class Tool:
             def command(self, *args): outer.calls.append(("command", args)); return "OK"
         class Log:
@@ -113,6 +115,35 @@ class SequenceTests(unittest.TestCase):
                 thread.join(2)
             self.assertFalse(thread.is_alive())
 
+    def test_fault_snapshot_preserves_values_when_one_measurement_fails(self):
+        from types import SimpleNamespace
+        hw = e13.Hardware.__new__(e13.Hardware)
+        records = []
+        def unavailable(): raise RuntimeError("Force unavailable")
+        hw.receiver = SimpleNamespace(getActualQ=lambda: [1]*6,
+                                      getActualTCPForce=unavailable)
+        hw.log = SimpleNamespace(write=lambda event, **data: records.append((event,data)))
+        hw.log_fault_snapshot()
+        self.assertEqual(records[0][0], "FAULT_SNAPSHOT")
+        self.assertEqual(records[0][1]["joints"], [1]*6)
+        self.assertEqual(records[0][1]["tcp_force_error"], "Force unavailable")
+
+    def test_lateral_diagnostics_record_signed_motion_force_and_speed(self):
+        hw = FakeHardware()
+        operation = e13.Operation(e13.FORWARD[8], hw)
+        hw.receiver.getActualTCPForce = lambda: [3,4,10,.1,.2,.3]
+        hw.receiver.getActualTCPSpeed = lambda: [.001,-.002,-.005,0,0,0]
+        hw.pose[:3] = [.002,-.003,.115]
+        operation.diagnostics(hw.pose, time.monotonic(), force=True)
+        sample = next(call[2] for call in hw.calls if call[0] == "log" and call[1] == ("OPERATION_SAMPLE",))
+        self.assertEqual(sample["lateral_force_n"], 5)
+        self.assertAlmostEqual(sample["displacement_mm"][0], 2)
+        self.assertAlmostEqual(sample["displacement_mm"][1], -3)
+        self.assertEqual(sample["tcp_speed"][:2], [.001,-.002])
+        self.assertEqual(sample["requested_wrench"], [0,0,-10,0,0,0])
+        self.assertEqual(sample["force_speed_limit_m_s"], .005)
+        self.assertAlmostEqual(e13.e12.LOW_OFFSET_M, .010)
+
     def test_forward_cycle_and_reverse_endpoint_mappings(self):
         state, seen = 0, []
         while state in e13.FORWARD:
@@ -138,7 +169,7 @@ class SequenceTests(unittest.TestCase):
             self.assertFalse(operation.tick())
             hw.sample["states"] = ["STALLED", "IDLE"]
             operation.last_poll = 0
-            self.assertFalse(operation.tick())
+            self.assertTrue(operation.tick())
             hw.pose[2] = .10
             self.assertTrue(operation.tick())
         self.assertEqual(operation.action.payload_after, "tool_with_floor")
@@ -146,6 +177,7 @@ class SequenceTests(unittest.TestCase):
     def test_fault_watchdog_keeps_connected_script_alive(self):
         from types import SimpleNamespace
         hw = e13.Hardware.__new__(e13.Hardware)
+        hw.report = lambda *args: None
         kicks = []
         hw.control = SimpleNamespace(isProgramRunning=lambda: True,
                                      kickWatchdog=lambda: kicks.append(1) or True)
@@ -155,7 +187,28 @@ class SequenceTests(unittest.TestCase):
         hw.maintain_watchdog()
         self.assertEqual(kicks, [1])
 
-    def test_reaching_z_first_holds_z_until_fresh_stall(self):
+    def test_placement_and_pickup_continue_past_target_until_motor_stall(self):
+        for index, motor in ((2,2),(8,1)):
+            hw = FakeHardware()
+            hw.sample["states"][motor-1] = "TIGHTENING"
+            operation = e13.Operation(e13.FORWARD[index], hw)
+            with patch.object(e13.e10, "status", side_effect=lambda _: hw.sample):
+                operation.start()
+                for z in (.10, .0994, .095):
+                    hw.pose[2] = z
+                    operation.last_debug = 0
+                    self.assertFalse(operation.tick())
+                forces = [call for call in hw.calls if call[0] == "force"]
+                self.assertTrue(all(call[1][1] == [1,1,1,0,0,0] for call in forces))
+                self.assertTrue(all(call[1][2][2] == -10.0 for call in forces))
+                self.assertFalse(any(call[0] == "moveL" for call in hw.calls))
+                self.assertIn("Z is reference only", operation.debug)
+                hw.sample["states"][motor-1] = "STALLED"
+                operation.last_poll = 0
+                self.assertTrue(operation.tick())
+                self.assertIn(("STOP",), hw.calls)
+
+    def test_reaching_z_first_keeps_compliance_until_fresh_stall(self):
         hw = FakeHardware()
         operation = e13.Operation(e13.FORWARD[2], hw)
         with patch.object(e13.e10, "status", side_effect=lambda _: hw.sample):
@@ -164,8 +217,8 @@ class SequenceTests(unittest.TestCase):
             hw.pose[2] = .10
             self.assertFalse(operation.tick())
             force = next(call for call in hw.calls if call[0] == "force")
-            self.assertEqual(force[1][1], [1,1,0,0,0,0])
-            self.assertTrue(any(call[0] == "moveL" for call in hw.calls))
+            self.assertEqual(force[1][1], [1,1,1,0,0,0])
+            self.assertFalse(any(call[0] == "moveL" for call in hw.calls))
             hw.sample["states"] = ["IDLE", "STALLED"]
             operation.last_poll = 0
             self.assertTrue(operation.tick())
@@ -177,7 +230,7 @@ class SequenceTests(unittest.TestCase):
         operation = e13.Operation(e13.FORWARD[2], hw)
         with patch.object(e13.e10, "status", return_value=dict(states=["IDLE", "STALLED"], pwm_percent=0)):
             operation.start()
-            self.assertFalse(operation.tick())
+            self.assertTrue(operation.tick())
             commands = sum(call[0] == "command" for call in hw.calls)
             operation.start()
             self.assertEqual(sum(call[0] == "command" for call in hw.calls), commands)
@@ -193,7 +246,7 @@ class SequenceTests(unittest.TestCase):
             self.assertEqual(hw.calls[0], ("payload", "tool_only"))
             self.assertFalse(operation.tick())
             force = next(call for call in hw.calls if call[0] == "force")
-            self.assertEqual(force[1][2][2], 4.90)
+            self.assertEqual(force[1][2][2], 10.0)
             hw.pose[2] = .12
             self.assertTrue(operation.tick())
 
@@ -235,6 +288,7 @@ class SequenceTests(unittest.TestCase):
     def test_halt_releases_move_thread_before_force_stop_and_payload(self):
         from types import SimpleNamespace
         hw = e13.Hardware.__new__(e13.Hardware)
+        hw.report = lambda *args: None
         calls, moving = [], [True]
         def stop_linear(deceleration, asynchronous):
             self.assertFalse(asynchronous)
@@ -250,7 +304,8 @@ class SequenceTests(unittest.TestCase):
         hw.control = SimpleNamespace(stopL=stop_linear, forceModeStop=force_stop,
                                      isProgramRunning=lambda: True, kickWatchdog=lambda: True,
                                      setPayload=lambda *args: calls.append("payload") or True)
-        hw.receiver = SimpleNamespace(getActualQd=lambda: [0]*6, getTimestamp=time.monotonic)
+        hw.receiver = SimpleNamespace(getActualQd=lambda: [0]*6, getTimestamp=time.monotonic,
+                                      getActualTCPForce=lambda: [0]*6, getActualTCPPose=lambda: [0]*6)
         hw.payloads = {"tool_only": (1.19, [-.003,.044,0])}
         hw.log = SimpleNamespace(write=lambda *args, **kwargs: None)
         hw.halt()
@@ -261,6 +316,7 @@ class SequenceTests(unittest.TestCase):
     def test_robot_stop_attempted_even_when_tool_stop_fails(self):
         from types import SimpleNamespace
         hw = e13.Hardware.__new__(e13.Hardware)
+        hw.report = lambda *args: None
         calls = []
         hw.tool = object()
         hw.force_active, hw.motion_kind = True, "L"

@@ -59,7 +59,7 @@ clients before connecting.
    use **toward HOME** to preserve the LOW/TARGET linear withdrawal.
 2. Click **Connect live control (no movement)**. This uploads the ur_rtde control
    script and computes calibrated FK with the active TCP. It checks FK against
-   all three recorded TCP poses, derives LOW at TARGET base Z +0.020 m, and finds
+   all three recorded TCP poses, derives LOW at TARGET base Z +0.010 m, and finds
    LOW's joints with IK near TARGET. Controller limit checks and a branch-distance
    check must pass. They are not collision/path-clearance checks.
 3. Verify the full robot/tool/board swept paths and the intended TCP/payload,
@@ -133,7 +133,7 @@ Source: [ur_rtde FK implementation](https://gitlab.com/sdurobotics/ur_rtde/-/blo
 and [robot-side FK command](https://gitlab.com/sdurobotics/ur_rtde/-/blob/master/scripts/rtde_control.script).
 
 1. Teach Zone 1 TARGET and retain its six joints.
-2. Evaluate calibrated FK with the intended TCP. Derive LOW by adding **0.020 m
+2. Evaluate calibrated FK with the intended TCP. Derive LOW by adding **0.010 m
    to base-frame Z**, preserving X/Y and orientation. This is an upward base-Z
    translation, not an offset along tool-local Z.
 3. Teach HIGH as a separate joint configuration, then HOME separately.
