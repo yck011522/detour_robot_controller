@@ -221,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Rebuildable shared minimap sprites; original map artwork remains tracked.
+/asset/cache/

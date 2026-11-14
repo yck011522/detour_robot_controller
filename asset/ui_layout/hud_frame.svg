@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <rect x="58" y="19" width="1804" height="55" rx="25" fill="#f9fafc" stroke="#ffffff" stroke-width="2" opacity="0.6" />
+  <rect x="58" y="902" width="1804" height="99" rx="25" fill="#f9fafc" stroke="#ffffff" stroke-width="2" opacity="0.6" />
+  <polyline points="313,33 313,58" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="750,33 750,58" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="1032,33 1032,58" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="624,920 624,987" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="770,920 770,987" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="1151,920 1151,987" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <polyline points="1299,920 1299,987" stroke="#ffffff" stroke-width="3" opacity="0.65" />
+  <ellipse cx="385" cy="37" rx="21" ry="10" stroke="#676d76" stroke-width="2" />
+  <ellipse cx="385" cy="44" rx="21" ry="10" stroke="#676d76" stroke-width="2" />
+  <ellipse cx="385" cy="51" rx="21" ry="10" stroke="#676d76" stroke-width="2" />
+  <polyline points="816,38 829,45 842,38" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="816,44 829,51 842,44" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="816,50 829,57 842,50" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="816,38 829,31 842,38" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="79,154 91,161 103,154" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="79,160 91,167 103,160" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="79,166 91,173 103,166" stroke="#676d76" stroke-width="1.7" />
+  <polyline points="79,154 91,147 103,154" stroke="#676d76" stroke-width="1.7" />
+</svg>

@@ -63,7 +63,7 @@ Rebuild the cache after re-exporting artwork:
 .\.venv\Scripts\python.exe experiments/e12_pygame_minimap/benchmark.py --prepare-only
 ```
 
-Source files under `asset/` are only read. Generated cache files live in `cache/`
+Source files under `asset/` are only read. Generated cache files live in root `asset/cache/minimap/`
 and are ignored by Git. The application loads only 700 px images; native cropped
 variants are retained for the separate benchmark tool.
 
@@ -77,3 +77,16 @@ refreshes comparison references. `--skip-video` omits the synthetic single-windo
 1080p YUV test, which excludes decoding, networking, and physical scanout.
 Results under `results/` and `BENCHMARK_FINDINGS.md` from the earlier artwork are
 historical and have not been remeasured for the latest export.
+
+
+Cache preparation is now owned by `game_controller/minimap_cache.py`.
+`benchmark.py --prepare-only` delegates to the shared builder. E13 checks and
+rebuilds this cache automatically at startup. To check/rebuild it independently:
+
+```powershell
+.\.venv\Scripts\python.exe -m game_controller.minimap_cache
+```
+
+Add `--force` for an unconditional rebuild. The build information fingerprints
+only map PNGs, so NFC registration and runtime floor-opacity edits do not cause
+raster preparation. Original source artwork is never modified.

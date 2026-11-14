@@ -1,0 +1,15 @@
+{
+  "reuse_hud": {
+    "median_ms": 2.5725000159582123,
+    "p95_ms": 3.9511000213678926,
+    "max_ms": 5.100000009406358,
+    "samples": 300
+  },
+  "rebuild_hud_every_frame": {
+    "median_ms": 4.903699998976663,
+    "p95_ms": 8.28209999599494,
+    "max_ms": 9.619299991754815,
+    "samples": 300
+  },
+  "scope": "Single hidden 1920x1080 software surface; no decoding, scanout, or map rebuild in timed loop"
+}

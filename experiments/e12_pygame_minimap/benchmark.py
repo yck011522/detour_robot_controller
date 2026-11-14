@@ -1,4 +1,4 @@
-"""Incremental single-instance benchmarks; generated files stay outside asset/."""
+"""Single-instance benchmarks using the shared root-level minimap cache."""
 
 import argparse
 import ctypes
@@ -6,12 +6,17 @@ from functools import partial
 import json
 from pathlib import Path
 import statistics
+import sys
 import time
 
 import pygame
 
+# Direct script launches resolve the production package from the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from game_controller.minimap_cache import prepare_cached_layers
+
 from minimap import (
-    ASSET_DIRECTORY, CURRENT_FLOOR_OPACITY, OTHER_FLOOR_OPACITY,
+    ASSET_DIRECTORY, CACHE_DIRECTORY, CURRENT_FLOOR_OPACITY, OTHER_FLOOR_OPACITY,
     FLOOR_ORDER, MINIMAP_SIZE, NATIVE_SIZE, load_cached_layers,
     load_minimap_assets, load_tag_attributes,
 )
@@ -19,53 +24,9 @@ from minimap import (
 
 # Separate output directories preserve the source artwork and original experiment.
 EXPERIMENT_DIRECTORY = Path(__file__).resolve().parent
-CACHE_DIRECTORY = EXPERIMENT_DIRECTORY / "cache"
 RESULT_DIRECTORY = EXPERIMENT_DIRECTORY / "results"
 SCENE_TAGS = (11, 63, 140, 310)
 SCENE_ZONES = ("A", "C")
-
-
-def prepare_cached_layers(assets, target_sizes):
-    """Decode once, crop native images, and save premultiplied size/opacity variants."""
-    started = time.perf_counter()
-    manifest_path = CACHE_DIRECTORY / "manifest.json"
-    # Cache construction is explicit via --prepare; normal runs load prepared files.
-    manifest = {}
-    source_paths = sorted({path for category in ("floors", "tracks", "zones", "cars", "coins")
-                           for path in assets[category].values()})
-    for image_index, image_path in enumerate(source_paths):
-        source_image = pygame.image.load(str(image_path))
-        native_bounds = source_image.get_bounding_rect()
-        cropped_image = source_image.subsurface(native_bounds).copy()
-        relative_name = image_path.relative_to(ASSET_DIRECTORY).as_posix()
-        # Floors/zones keep neutral alpha so tuning opacity needs no disk-cache rebuild.
-        opacities = (51, 255) if image_path.parent.name == "Cars" else (255,)
-        for opacity in opacities:
-            native_image = cropped_image.copy()
-            native_image.fill((255, 255, 255, opacity), special_flags=pygame.BLEND_RGBA_MULT)
-            native_image = native_image.premul_alpha()
-            for size in (4000, *target_sizes):
-                if size == 4000:
-                    prepared_image, bounds = native_image, native_bounds
-                else:
-                    # Scale on the original canvas to preserve the exact sampling grid.
-                    canvas = pygame.Surface(NATIVE_SIZE, pygame.SRCALPHA)
-                    canvas.blit(native_image, native_bounds, special_flags=pygame.BLEND_PREMULTIPLIED)
-                    reduced_image = pygame.transform.smoothscale(canvas, (size, size))
-                    bounds = reduced_image.get_bounding_rect()
-                    prepared_image = reduced_image.subsurface(bounds).copy()
-                cache_key = f"{size}/{opacity}/{relative_name}"
-                output_path = CACHE_DIRECTORY / cache_key
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                pygame.image.save(prepared_image, str(output_path))
-                manifest[cache_key] = [bounds.x, bounds.y]
-        if image_index % 50 == 0:
-            print(f"Prepared {image_index + 1}/{len(source_paths)} source images", flush=True)
-    CACHE_DIRECTORY.mkdir(exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    duration = time.perf_counter() - started
-    print(f"Cache preparation: {duration:.2f} seconds", flush=True)
-    return duration
 
 
 def compose_cached_minimap(tag_attributes, assets, layers, active_car, car_tags,
@@ -343,7 +304,7 @@ if __name__ == "__main__":
     pygame.display.init()
     tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
     assets = load_minimap_assets(ASSET_DIRECTORY)
-    preparation_seconds = prepare_cached_layers(assets, (MINIMAP_SIZE,)) if arguments.prepare or arguments.prepare_only else None
+    preparation_seconds = prepare_cached_layers(asset_directory=ASSET_DIRECTORY, target_sizes=(MINIMAP_SIZE,)) if arguments.prepare or arguments.prepare_only else None
     if arguments.prepare_only:
         pygame.quit()
         raise SystemExit(0)

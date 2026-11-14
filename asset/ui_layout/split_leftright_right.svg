@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="266" height="326" viewBox="0 0 266 326">
+  <rect x="0" y="0" width="266" height="326" rx="24" fill="#f9fafc" opacity="0.85" />
+  <polyline points="21,73 245,73" stroke="#c5cbd1" stroke-width="1.5" />
+  <text x="22" y="12" font-size="22" fill="#22262d" font-family="Microsoft JhengHei" dominant-baseline="text-before-edge" font-weight="700">前方分岔</text>
+  <text x="22" y="40" font-size="12" fill="#676d76" font-family="Segoe UI" dominant-baseline="text-before-edge">APPROACHING SPLIT</text>
+  <polyline points="133.000,218.000 133.000,165.000 132.957,163.692 132.829,162.389 132.616,161.098 132.319,159.824 131.939,158.571 131.478,157.346 130.937,156.154 130.321,155.000 129.629,153.889 128.867,152.825 128.037,151.813 127.142,150.858 126.187,149.963 125.175,149.133 124.111,148.371 123.000,147.679 121.846,147.063 120.654,146.522 119.429,146.061 118.176,145.681 116.902,145.384 115.611,145.171 114.308,145.043 113.000,145.000 77.000,145.000" stroke="#ffffff" stroke-width="6" />
+  <polyline points="87.000,135.000 77.000,145.000 87.000,155.000" stroke="#ffffff" stroke-width="6" />
+  <polyline points="133.000,218.000 133.000,165.000 133.043,163.692 133.171,162.389 133.384,161.098 133.681,159.824 134.061,158.571 134.522,157.346 135.063,156.154 135.679,155.000 136.371,153.889 137.133,152.825 137.963,151.813 138.858,150.858 139.813,149.963 140.825,149.133 141.889,148.371 143.000,147.679 144.154,147.063 145.346,146.522 146.571,146.061 147.824,145.681 149.098,145.384 150.389,145.171 151.692,145.043 153.000,145.000 189.000,145.000" stroke="#ff741f" stroke-width="6" />
+  <polyline points="179.000,135.000 189.000,145.000 179.000,155.000" stroke="#ff741f" stroke-width="6" />
+  <rect x="24" y="247" width="110" height="63" rx="12" fill="#ffffff" opacity="0.75" />
+  <text x="79" y="258" font-size="17" text-anchor="middle" fill="#22262d" font-family="Microsoft JhengHei" dominant-baseline="text-before-edge" font-weight="700">左轉</text>
+  <text x="79" y="282" font-size="12" text-anchor="middle" fill="#676d76" font-family="Segoe UI" dominant-baseline="text-before-edge">LEFT</text>
+  <rect x="134" y="247" width="110" height="63" rx="12" fill="#ff741f" opacity="1" />
+  <text x="189" y="258" font-size="17" text-anchor="middle" fill="#ffffff" font-family="Microsoft JhengHei" dominant-baseline="text-before-edge" font-weight="700">右轉</text>
+  <text x="189" y="282" font-size="12" text-anchor="middle" fill="#ffffff" font-family="Segoe UI" dominant-baseline="text-before-edge">RIGHT</text>
+</svg>

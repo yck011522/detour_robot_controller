@@ -16,8 +16,8 @@ FLOOR_ORDER = ("-1", "G", "1", "2", "3", "4", "5", "6", "7")
 ASSET_DIRECTORY = Path(__file__).resolve().parents[2] / "asset"
 # Preview dimensions are fixed to the selected production minimap size.
 MINIMAP_SIZE = 700
-# Generated prepared sprites live beside this experiment, outside the source assets.
-CACHE_DIRECTORY = Path(__file__).resolve().parent / "cache"
+# Generated sprites are shared root-level assets, separate from the original map PNGs.
+CACHE_DIRECTORY = ASSET_DIRECTORY / "cache" / "minimap"
 # Opacity multipliers from 0.0 (invisible) to 1.0 (fully visible), also used by zones.
 CURRENT_FLOOR_OPACITY = 1.0
 OTHER_FLOOR_OPACITY = 0.20
