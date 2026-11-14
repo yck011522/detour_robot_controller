@@ -1,4 +1,4 @@
-"""Launch E13's simulator; reusable rendering code is in layout_assets/layout_renderer."""
+"""Launch E13's simulator; reusable rendering code is in game_controller/ui_layout.py."""
 
 import argparse
 

@@ -10,6 +10,8 @@ import pygame
 
 from .video import VideoWindow
 from .capture import Recorder
+from .ui_layout import LAYOUT_SIZE, VIDEO_BLINK_SECONDS, load_layout_assets, compose_layout_overlay
+from .minimap import ASSET_DIRECTORY, load_tag_attributes, load_minimap_assets, compose_minimap
 
 
 class Camera:
@@ -170,6 +172,17 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
     local_stop = threading.Event()
     state = {"car": car}
     try:
+        # Pygame artwork conversion needs a pixel format; this window stays hidden.
+        pygame.display.set_mode((1, 1), pygame.HIDDEN)
+        layout_assets = load_layout_assets()
+        tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
+        map_assets = load_minimap_assets(ASSET_DIRECTORY)
+        previous_map_tags = previous_overlay_key = None
+        map_surface = layout_surface = None
+        overlay = pygame.Surface(LAYOUT_SIZE, pygame.SRCALPHA)
+        video_wash = pygame.Surface(LAYOUT_SIZE, pygame.SRCALPHA)
+        video_wash.fill((128, 128, 128, settings["video_wash_alpha"]))
+        video_wash = video_wash.premul_alpha()
         window = VideoWindow(car, display_index)
         surface = pygame.Surface((1920, 365), pygame.SRCALPHA)
         font, small = pygame.font.Font(None, 32), pygame.font.Font(None, 26)
@@ -178,6 +191,7 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
         key_names = ["forward", "left", "right", "backward", "manual"]
         key_codes = [bindings[key] for key in key_names]
         report_at = 0
+        previous_panel_visible = False
         while not stop.is_set():
             for event in pygame.event.get():
                 if event.type in (pygame.QUIT, pygame.WINDOWCLOSE):
@@ -219,9 +233,35 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
                 capture_path = desired_path
                 recorder = Recorder(capture_path, settings["display_fps"])
                 events.put_nowait(("capture_status", car, capture_path, "recording", ""))
-            draw_panel(surface, state, camera, settings["video_stale_s"], font, small)
+            # Map layers only change when a visible car moves or presence changes.
+            hud = state.get("hud")
+            overlay_changed = False
+            if hud is not None:
+                hud["video_present"] = bool(camera.last_frame and now - camera.last_frame <= settings["video_stale_s"])
+                if hud["car_tags"] != previous_map_tags:
+                    map_surface = compose_minimap(tag_attributes, map_assets, car, hud["car_tags"])
+                    previous_map_tags = hud["car_tags"]
+                overlay_key = (tuple(hud.items()),
+                               int(now / VIDEO_BLINK_SECONDS) % 2 if hud["video_present"] else 0)
+                overlay_changed = overlay_key != previous_overlay_key
+                if overlay_changed:
+                    layout_surface = compose_layout_overlay(layout_assets, hud, map_surface, now)
+                    previous_overlay_key = overlay_key
+            # Admin/menu text is drawn over the visitor HUD, including pause artwork.
+            panel_visible = bool(state.get("admin") or state.get("quit_pending") or state.get("capture_menu"))
+            overlay_changed = overlay_changed or panel_visible or previous_panel_visible != panel_visible
+            if overlay_changed:
+                overlay.fill((0, 0, 0, 0))
+                overlay.blit(video_wash, (0, 0), special_flags=pygame.BLEND_PREMULTIPLIED)
+                if layout_surface is not None:
+                    overlay.blit(layout_surface, (0, 0), special_flags=pygame.BLEND_PREMULTIPLIED)
+                if panel_visible:
+                    draw_panel(surface, state, camera, settings["video_stale_s"], font, small)
+                    overlay.blit(surface.premul_alpha(), (0, 0), special_flags=pygame.BLEND_PREMULTIPLIED)
+            previous_panel_visible = panel_visible
             try:
-                window.draw(frame, surface, recorder, desired.get("ui", True) if desired else True)
+                window.draw(frame, overlay, recorder, desired.get("ui", True) if desired else True,
+                            overlay_changed=overlay_changed)
             except Exception as error:
                 if recorder is None:
                     raise

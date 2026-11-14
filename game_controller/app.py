@@ -22,6 +22,8 @@ from .display import offer, play
 from .modem import Modem, open_modem
 from .protocol import AUTO_STOP, CONTROLLERS, FOLLOWERS
 from .state import Car
+from .minimap import ASSET_DIRECTORY, load_tag_attributes
+from .minimap_cache import ensure_minimap_cache
 
 
 class Log:
@@ -105,6 +107,29 @@ def bindings_from_config(names):
     return result
 
 
+def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
+                           now, telemetry_timeout):
+    """Map accepted telemetry to HUD values without changing driving eligibility."""
+    packet = car.packet  # Last accepted values remain visible during telemetry loss.
+    tag_number = car_tags[car_number - 1]
+    location = tag_attributes[tag_number] if tag_number is not None else None
+    return {
+        "active_car": car_number, "present": car.present, "car_tags": tuple(car_tags),
+        "floor": location["floor"] if location else "--",
+        "tid": location["tid"] if location else "--",
+        "forward": bool(raw_input[0]), "left": bool(raw_input[1]), "right": bool(raw_input[2]),
+        "telemetry_fresh": car.feedback_ok(now, telemetry_timeout),
+        "battery": packet.battery_mv / 1000 if packet else None,
+        "sensor_mask": packet.sensors if packet else 0,
+        "left_speed": packet.left_mm_s / 1000 if packet else 0,
+        "right_speed": packet.right_mm_s / 1000 if packet else 0,
+        "battery_low": bool(packet and packet.controller == 14),
+        "line_lost": bool(packet and packet.follower == 10),
+        # Game mechanics will supply these display values in a later change.
+        "coins": 0, "split": "", "selected_exit": "", "video_present": False,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, default=0, help="timed run; 0 waits for Q/window close")
@@ -121,6 +146,8 @@ def main():
     context = multiprocessing.get_context("spawn")
     stop = context.Event()
     events = context.Queue(maxsize=1024)
+    # Shared display locations are separate from control state.
+    last_known_tags = [None] * 4
     cars = [Car(present=i in config["present"]) for i in range(1, 5)]
     admin, selected = config["admin"], 1
     keyboard, keyboard_at = (False,) * 5, 0
@@ -142,6 +169,12 @@ def main():
     quit_pending = False
     started = time.perf_counter()
     try:
+        tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
+        registered_tags = {attributes["nfc_uid"]: number
+                           for number, attributes in tag_attributes.items()
+                           if attributes["nfc_uid"]}
+        if not args.no_video:
+            ensure_minimap_cache(target_sizes=(700,))
         pygame.display.init()
         pygame.font.init()
         pygame.joystick.init()
@@ -324,6 +357,8 @@ def main():
                 car = cars[packet.car - 1]
                 previous = (car.packet.controller, car.packet.follower, car.packet.sensors not in (0, 255)) if car.packet else None
                 result = car.accept(packet, received_at, received_session, history, settings["telemetry_stale_s"])
+                if result not in ("duplicate", "stale") and car.uid in registered_tags:
+                    last_known_tags[packet.car - 1] = registered_tags[car.uid]
                 current = (packet.controller, packet.follower, packet.sensors not in (0, 255))
                 if result not in ("duplicate", "stale") and current != previous:
                     log("CAR_STATE", car=packet.car, controller=packet.controller,
@@ -335,6 +370,9 @@ def main():
                 raise RuntimeError("Diagnostic/event queue failed or overflowed; stopping driving")
             if tick_start - keyboard_at > settings["keyboard_stale_s"]:
                 keyboard = (False,) * 5
+            # Presence hides markers on every screen, without discarding their locations.
+            visible_tags = tuple(tag if car.present else None
+                                 for tag, car in zip(last_known_tags, cars))
             commands, states = [], []
             for index, car in enumerate(cars):
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
@@ -343,7 +381,10 @@ def main():
                                       keyboard, args.stop_only or quitting or quit_pending or capture_menu)
                 commands.append(command)
                 packet = car.packet
-                states.append({"car": index + 1, "admin": admin, "stop_only": args.stop_only,
+                states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
+                                                              tag_attributes, tick_start,
+                                                              settings["telemetry_stale_s"]),
+                               "car": index + 1, "admin": admin, "stop_only": args.stop_only,
                                "present": car.present, "selected": selected, "raw": raw,
                                "manual": bool(admin and keyboard[4]), "quit_pending": quit_pending,
                                "capture_menu": capture_menu, "capture_car": capture_car,

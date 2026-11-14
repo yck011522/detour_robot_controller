@@ -80,6 +80,7 @@ class VideoWindow:
             "SDL_RenderSetLogicalSize": (integer, [pointer, integer, integer]),
             "SDL_CreateTexture": (pointer, [pointer, uint, integer, integer, integer]),
             "SDL_SetTextureBlendMode": (integer, [pointer, integer]),
+            "SDL_ComposeCustomBlendMode": (integer, [integer] * 6),
             "SDL_SetYUVConversionMode": (None, [integer]),
             "SDL_UpdateYUVTexture": (integer, [pointer, pointer, pointer, integer,
                                                 pointer, integer, pointer, integer]),
@@ -124,7 +125,7 @@ class VideoWindow:
             raise RuntimeError(self.sdl.SDL_GetError().decode(errors="replace"))
         return result
 
-    def draw(self, frame, overlay=None, recorder=None, capture_ui=True):
+    def draw(self, frame, overlay=None, recorder=None, capture_ui=True, *, overlay_changed=True):
         """Share PyAV plane pointers; honor their actual pitches/padded rows."""
         if frame is not None:
             if frame.format.name not in ("yuv420p", "yuvj420p"):
@@ -154,10 +155,14 @@ class VideoWindow:
                 # SDL ABGR8888 matches byte-ordered RGBA on little-endian Windows.
                 self.overlay = self.check(self.sdl.SDL_CreateTexture(
                     self.renderer, 0x16762004, 1, *overlay.get_size()))
-                self.check(self.sdl.SDL_SetTextureBlendMode(self.overlay, 1))
-            rgba = pygame.image.tobytes(overlay, "RGBA")
-            self.check(self.sdl.SDL_UpdateTexture(
-                self.overlay, None, C.cast(C.c_char_p(rgba), C.c_void_p), overlay.get_width() * 4))
+                # Premultiplied RGBA: source ONE + destination ONE_MINUS_SRC_ALPHA.
+                blend_mode = self.sdl.SDL_ComposeCustomBlendMode(2, 6, 1, 2, 6, 1)
+                self.check(self.sdl.SDL_SetTextureBlendMode(self.overlay, blend_mode))
+                overlay_changed = True
+            if overlay_changed:
+                rgba = pygame.image.tobytes(overlay, "RGBA")
+                self.check(self.sdl.SDL_UpdateTexture(
+                    self.overlay, None, C.cast(C.c_char_p(rgba), C.c_void_p), overlay.get_width() * 4))
             destination = (C.c_int * 4)(0, 0, *overlay.get_size())
             self.check(self.sdl.SDL_RenderCopy(
                 self.renderer, self.overlay, None, C.byref(destination)))

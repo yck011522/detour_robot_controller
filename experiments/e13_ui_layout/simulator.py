@@ -1,7 +1,6 @@
 """E13 simulator controls, example exports, and benchmark harness; no production device access."""
 
 from concurrent.futures import ThreadPoolExecutor
-import importlib.util
 import json
 import math
 import statistics
@@ -13,8 +12,7 @@ from tkinter import ttk
 import pygame
 
 from layout_settings import (REPOSITORY_DIRECTORY, RESULT_DIRECTORY, LAYOUT_SIZE, SPLIT_EXITS, SPLIT_MODES, VIDEO_BLINK_SECONDS)
-from layout_assets import load_layout_assets
-from layout_renderer import compose_layout_overlay
+from game_controller.ui_layout import load_layout_assets, compose_layout_overlay
 
 
 # Cache preparation is production-owned and shared with the future controller UI.
@@ -22,12 +20,7 @@ sys.path.insert(0, str(REPOSITORY_DIRECTORY))
 from game_controller.minimap_cache import ensure_minimap_cache
 
 
-# Import E12 by its explicit file path; its GUI is not started or changed.
-minimap_specification = importlib.util.spec_from_file_location(
-    "e12_minimap", REPOSITORY_DIRECTORY / "experiments/e12_pygame_minimap/minimap.py"
-)
-minimap = importlib.util.module_from_spec(minimap_specification)
-minimap_specification.loader.exec_module(minimap)
+from game_controller import minimap
 
 
 def create_control_window(tag_attributes, background_names):
@@ -222,26 +215,7 @@ def run_experiment(snapshot=False, benchmark=False):
     assets = load_layout_assets(include_test_backgrounds=True)
     tag_attributes = minimap.load_tag_attributes(minimap.ASSET_DIRECTORY)
     map_assets = minimap.load_minimap_assets(minimap.ASSET_DIRECTORY)
-    layers = minimap.load_cached_layers((700,))
-    # Share E12's cropped coin sprites and static-floor compositor without its GUI.
-    grouped_coins = {}
-    for car_number in range(1, 5):
-        for floor in minimap.FLOOR_ORDER:
-            combined = pygame.Surface((700, 700), pygame.SRCALPHA)
-            for tag_number, attributes in tag_attributes.items():
-                if attributes["floor"] == floor and attributes["track"] == str(
-                    car_number
-                ):
-                    image, offset = layers[f"700/255/Coins/T{tag_number}.png"]
-                    combined.blit(
-                        image, offset, special_flags=pygame.BLEND_PREMULTIPLIED
-                    )
-            bounds = combined.get_bounding_rect()
-            grouped_coins[(car_number, floor)] = (
-                combined.subsurface(bounds).copy(),
-                bounds.topleft,
-            )
-    floor_cache = {}
+    floor_cache = map_assets["floor_cache"]
     previous_static_state = None
 
     def compose_map(active_car, tags, zones):
@@ -259,16 +233,14 @@ def run_experiment(snapshot=False, benchmark=False):
         image = minimap.compose_minimap(
             tag_attributes,
             map_assets,
-            layers,
             active_car,
             tags,
             zones,
-            grouped_coins,
-            floor_cache,
         )
         return image, (time.perf_counter() - started) * 1000
 
     state = {
+        "present": True,
         "active_car": 1,
         "floor": "1",
         "tid": "T101",

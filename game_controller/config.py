@@ -24,6 +24,7 @@ def load(address_path=None, game_path=None):
     if settings["ui_snapshot_hz"] > settings["control_hz"]:
         raise ValueError("UI snapshot rate cannot exceed control cadence")
     settings["display_fps"] = int(settings["display_fps"])
+    settings["video_wash_alpha"] = game.getint("ui", "video_wash_alpha")
     present = {int(value.strip()) for value in game["m1"]["present_cars"].split(",") if value.strip()}
     if not present <= {1, 2, 3, 4}:
         raise ValueError("present_cars must contain car IDs 1-4")

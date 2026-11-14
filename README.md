@@ -19,6 +19,19 @@ screens, close the controller and run `Calibrate Monitors.bat` in the project
 root; type the displayed letters in car 1 through car 4 order and press Enter.
 M1 does not connect to or command the UR robot or end effector.
 
+The four player displays use the E13 HUD and minimap from
+`game_controller/ui_layout.py` and `game_controller/minimap.py`. Press Space to
+leave the initial admin view and see the player layout. Telemetry, raw input
+indicators, and pause artwork use live controller state. Markers use registered
+`nfc_uid` values in `asset/map_attributes.csv` (eight hexadecimal digits); replace
+the CSV and restart to load new registrations. Unknown locations have no marker.
+Not Present hides that car on every map and shows telemetry-loss artwork on its
+own screen. Coin totals stay at zero, coin markers stay static, and split/zone
+mechanics remain deferred. In `config/game_config.ini`, `[ui] video_wash_alpha`
+controls the gray video wash (0?255, initially 0). Display pacing targets 60 FPS;
+the independent control loop remains 50 Hz.
+
+
 For an automated stop-only observation:
 
 ```powershell

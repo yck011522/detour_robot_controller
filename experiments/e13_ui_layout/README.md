@@ -2,7 +2,7 @@
 
 A single windowed **1920 × 1080** Pygame preview based on
 [`reference/layout.svg`](../../reference/layout.svg), with a separate Tkinter
-simulator. This experiment reuses E12's **700 px cached minimap**. It does not
+simulator. This experiment uses the production **700 px cached minimap** and HUD. It does not
 connect to cameras, serial, cars, or robots, and does not modify the source
 artwork, fonts, E12, or the main application.
 
@@ -28,18 +28,18 @@ The launch command is unchanged. Existing code is now separated by responsibilit
 
 | File | Purpose |
 |---|---|
-| `layout_settings.py` | Colors, fonts, geometry, and split descriptions. |
-| `layout_assets.py` | Root-owned artwork loading and the `static_labels` text/positions. |
-| `layout_renderer.py` | HUD drawing, dynamic values, sensor circles, and pause overlays. |
+| `game_controller/ui_layout.py` | Production settings, artwork, typography, telemetry, and pause overlays. |
+| `game_controller/minimap.py` | Production CSV loading and cached four-car minimap. |
+| `layout_settings.py` | Simulator paths and imports of production visual settings. |
 | `asset_tools.py` | SVG/PNG generation through `--prepare-assets`. |
-| `simulator.py` | Tkinter controls, E12 minimap bridge, snapshots, and benchmarks. |
+| `simulator.py` | Tkinter controls, production minimap preview, snapshots, and benchmarks. |
 | `ui_layout.py` | Small CLI entry point. |
 | `verify_layout.py` | Programmatic image/state checks. |
 
 The renderer and default asset loader do not import Tkinter or E12 and do not
 load test backgrounds. The simulator explicitly opts into those backgrounds.
 Unused sensor PNG/SVG artifacts and their generator code have been removed.
-The actual game controller has not been changed.
+The production game controller uses these same rendering functions.
 
 See [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md) for the agreed UI-only integration
 scope, root-owned asset/code destinations, typed data mappings, marker/presence
@@ -124,8 +124,8 @@ Regenerate the artwork after changing the generator:
 
 `asset/ui_layout/` is the output of `prepare_layout_assets` in `asset_tools.py`; regeneration overwrites
 manual edits there. Change `asset_tools.py` to preserve an artwork adjustment. Static runtime labels
-and their positions are now in `layout_assets.py`; theme/geometry settings are
-in `layout_settings.py`.
+and their positions are now in `game_controller/ui_layout.py`; theme/geometry settings are
+in that production module.
 E13 automatically rebuilds the shared minimap cache after map artwork changes.
 To prepare it separately or force a rebuild:
 

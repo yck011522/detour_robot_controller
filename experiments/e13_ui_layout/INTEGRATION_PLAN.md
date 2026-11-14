@@ -1,11 +1,16 @@
 # E13 UI integration plan
 
-Updated 2026-11-14 following the user's scope clarification. This is a plan to
-integrate the accepted E13 UI into the existing game controller. Game mechanics
-are not prerequisites and are not implemented by this work. The asset relocation is complete, and cache preparation/validation now lives in
-`game_controller/minimap_cache.py`. E13 rebuilds stale/missing caches at startup.
-Production display/control integration and runtime renderer promotion are still
-pending; control rules and firmware are unchanged.
+Updated 2026-11-14: production integration is implemented using two new modules:
+`game_controller/ui_layout.py` (settings, asset loading, HUD) and
+`game_controller/minimap.py` (CSV registrations and cached map composition).
+E13 now imports these production renderers. The existing app/display/video modules
+provide numeric snapshots, shared last-known locations, premultiplied SDL blending,
+changed-only overlay uploads, and the optional video wash. Control rules and
+firmware are unchanged. Game mechanics below remain deferred.
+
+The software checks cover E13's visual behavior and the production data/rendering
+path. Live camera/four-display performance still requires hardware verification;
+60 FPS is a pacing target, not a measured four-display result.
 
 ## Agreed scope
 
@@ -43,8 +48,7 @@ Do not put branch-selection or reservation decisions inside the renderer.
 
 ## Root-owned runtime code and assets
 
-Asset relocation is complete; the production `game_controller/ui/` code below
-is still proposed:
+Runtime assets and renderers are production-owned:
 
 ```text
 asset/
@@ -59,8 +63,9 @@ asset/
   ...existing map source PNGs...
 
 game_controller/
-  ui/                         # Production-owned settings, asset loader, renderer,
-                              # minimap compositor, and UID-to-visual-tag lookup
+  ui_layout.py                # Settings, artwork, typography, and HUD composition
+  minimap.py                  # CSV registration loading and minimap composition
+  minimap_cache.py            # Existing cache preparation and freshness checks
 ```
 
 The three pause PNGs are already in root-level `asset/` and can keep their
@@ -72,13 +77,12 @@ The existing minimap cache and manifest are now in `asset/cache/minimap/`.
 E12 loaders and the E13 simulator use that shared location. The production-owned
 `game_controller/minimap_cache.py` owns rebuilding and freshness checks; E12
 benchmark preparation delegates to it, and E13 checks it before loading sprites. The
-simulator still imports E12 minimap code; promote that reusable code into the
-production package during integration, so the controller has no experiment
-code dependency. Native-resolution cached sprites remain for existing benchmarks.
+simulator and controller now import `game_controller/minimap.py`; production has
+no experiment code dependency. Native-resolution cached sprites remain for existing benchmarks.
 
 Asset-generation tools, Tkinter simulation, example images, verification scripts,
-and benchmark harnesses can remain in experiments/tools. After promotion, E13
-should exercise the production renderer and root-owned assets, rather than
+and benchmark harnesses can remain in experiments/tools. E13
+now exercises the production renderer and root-owned assets, rather than
 maintaining a second implementation. Production must never import E13 or E12.
 No runtime SVG rasterization is needed: load the prepared transparent PNGs once.
 
@@ -161,28 +165,37 @@ ordering and freshness handling; do not change the wire format.
   wash/overlay appearance for the with-UI capture. E13's Escape-to-exit behavior
   remains simulator-only; production keeps its existing exit controls.
 
-## Implementation sequence and function responsibilities
+## Implemented function responsibilities
 
-1. Asset relocation is complete. Next promote reusable HUD/minimap code into
-   production-owned modules, and update the E13 harness to use those components.
-2. Connect typed snapshots from existing accepted telemetry, inputs, presence,
-   and CSV localization. No new control eligibility checks or game mechanics.
-3. Integrate the cached HUD into the existing display/SDL path, preserving admin
-   and capture behavior. Add adjustable wash and correct alpha blending.
-4. Verify programmatically, then measure the actual camera/display path and
-   four-display performance separately from the 50 Hz control loop.
-
-| Function | Responsibility |
+| Location / function | Responsibility |
 |---|---|
-| `build_display_snapshot` | Map existing controller state to typed HUD fields, shared locations, and presence. |
-| `resolve_tag_location` | Resolve CSV registrations to visual tags and last-known display locations only; never decide driving eligibility. |
-| `load_layout_assets` | Load production-owned artwork/fonts once; no experiment paths or test backgrounds. |
-| `compose_minimap` | Draw known, present car markers and supplied map layers using cached stacks. |
-| `compose_layout_overlay` | Render supplied HUD data and the accepted pause artwork/priority. |
-| `update_overlay_texture` | Upload changed HUD pixels with premultiplied blending in the SDL owner process. |
+| `app.build_display_snapshot` | Map accepted telemetry and shared visible locations to numeric HUD fields. |
+| `minimap.load_tag_attributes` | Read CSV visual tags and NFC registrations at startup. |
+| `minimap.load_minimap_assets` / `load_cached_layers` | Load cached sprites and group static coins once. |
+| `minimap.compose_minimap` | Render known, present markers and cached floor stacks. |
+| `ui_layout.load_layout_assets` | Load production artwork/fonts once; simulator backgrounds are opt-in. |
+| `ui_layout.compose_layout_overlay` | Draw supplied HUD values and pause priority. |
+| Existing `display.play` / `video.VideoWindow.draw` | Compose video wash, HUD, and admin UI; upload changed premultiplied pixels and preserve capture modes. |
 
-There is intentionally no `record_tag_visit`, persistence writer, respawn timer,
-zone scheduler, or navigation-policy function in this UI integration plan.
+UID resolution and last-known locations are maintained beside accepted-packet
+handling in `app.py`. No additional location service, renderer class, compatibility
+layer, or game-mechanics module was added.
+
+## Verification completed on the development computer
+
+- All 35 tests in `tests/` pass, including production HUD/CSV/marker tests and
+  existing controller, capture, monitor, and cache checks.
+- `verify_layout.py` passes using the promoted renderer; all 691 original
+  artwork/reference hashes remain unchanged.
+- Hidden-window synthetic YUV tests pass for both SDL `direct3d` and `direct3d11`:
+  raw captures retain the video, with-UI captures blend premultiplied pixels
+  correctly, and unchanged overlay textures are reused.
+- A rendered production snapshot was inspected visually.
+
+The development computer is not the production four-monitor/two-GPU setup.
+Monitor assignment, live-camera recording, and sustained four-display performance
+are left for the user's later production hardware test. No robot movement or
+serial/camera connection was used for these checks.
 
 ## Acceptance checks
 
