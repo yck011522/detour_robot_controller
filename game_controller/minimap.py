@@ -31,6 +31,8 @@ def load_tag_attributes(asset_directory):
                 "track": row["track"],
                 "nfc_uid": row["nfc_uid"].strip().lower(),
                 "video_id": row.get("video_id", "").strip(),
+                **{key: row.get(key, "").strip() for key in
+                   ("split", "mergeedge", "safeexit", "reservezone")},
             }
             for row in csv.DictReader(attribute_file)
         }

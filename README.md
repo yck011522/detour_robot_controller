@@ -33,7 +33,18 @@ requires observing a different tag and returning; staying parked does not score.
 Adjust `silver_points`, `gold_points`, and `respawn_seconds` under `[coins]` in
 `config/game_config.ini`, then restart. Totals are saved in `config/coin_count.ini`;
 all coins are available on startup, with the saved totals retained. Stop the
-controller before editing totals. Split/zone mechanics remain deferred.
+controller before editing totals.
+
+Player AUTO steering uses the current NFC tag's `split` and `mergeedge` labels. At a
+split, input can change the edge choice while NFC age is at most 100 ms. Above
+100 ms the last selection locks until a different UID is observed; forward
+still controls stop/resume. Adjust `[navigation] split_lock_age_ms` in
+`config/game_config.ini`, then restart. Merges force the labeled edge; ordinary
+tags clear turn bits. Admin AUTO and MANUAL use direct keyboard commands and
+bypass tag-based steering, including the split lock and ordinary-tag centering.
+Zone reservation remains deferred: player AUTO forces `safeexit` at zone approaches.
+The split HUD shows the effective branch; `NAVIGATION` logs record edge and lock
+changes. Physical split/merge acceptance is pending.
 In `config/game_config.ini`, `[ui] video_wash_alpha`
 controls the gray video wash (0?255, initially 0). Display pacing targets 60 FPS;
 the independent control loop remains 50 Hz.

@@ -1,7 +1,7 @@
 """M1 controller main thread: HID + admin intent + World State tick at 50 Hz.
 
 This diagnostic application never imports UR RTDE or opens a UR/tool socket.
-No zone or board claims are made; map filtering is deliberately deferred to M2.
+No zone or board claims are made; zone approaches use the map's safeexit.
 """
 
 import argparse
@@ -25,6 +25,7 @@ from .protocol import AUTO_STOP, CONTROLLERS, FOLLOWERS
 from .state import Car
 from .minimap import ASSET_DIRECTORY, load_tag_attributes
 from .minimap_cache import ensure_minimap_cache
+from .navigation import validate_tags
 
 
 class Log:
@@ -127,7 +128,9 @@ def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
         "battery_low": bool(packet and packet.controller == 14),
         "line_lost": bool(packet and packet.follower == 10),
         "coins": coins, "hidden_coins": tuple(hidden_coins),
-        "split": "", "selected_exit": "", "video_present": False,
+        "split": car.navigation.split if car.navigation.selected_exit else "",
+        "selected_exit": car.navigation.selected_exit,
+        "split_locked": car.navigation.locked, "video_present": False,
     }
 
 
@@ -151,6 +154,9 @@ def main():
     # Shared display locations are separate from control state.
     last_known_tags = [None] * 4
     cars = [Car(present=i in config["present"]) for i in range(1, 5)]
+    for car in cars:
+        car.navigation.lock_age_ms = settings["split_lock_age_ms"]
+    navigation_states = [None] * 4
     admin, selected = config["admin"], 1
     keyboard, keyboard_at = (False,) * 5, 0
     history, session = {}, 0
@@ -172,6 +178,7 @@ def main():
     started = time.perf_counter()
     try:
         tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
+        validate_tags(tag_attributes)
         registered_tags = {attributes["nfc_uid"]: number
                            for number, attributes in tag_attributes.items()
                            if attributes["nfc_uid"]}
@@ -369,6 +376,9 @@ def main():
                 if result not in ("duplicate", "stale") and car.uid in registered_tags:
                     last_known_tags[packet.car - 1] = registered_tags[car.uid]
                 if result not in ("duplicate", "stale"):
+                    number = registered_tags.get(car.uid)
+                    car.navigation.observe(car.uid, packet.nfc_age_ms, received_at,
+                                           tag_attributes.get(number))
                     award = coin_game.observe(packet.car, car.uid, received_at)
                     if award is not None:
                         coin_store.submit(coin_game.totals)
@@ -396,6 +406,14 @@ def main():
                                       model["connected"], joystick is not None, admin, selected, index + 1,
                                       keyboard, args.stop_only or quitting or quit_pending or capture_menu)
                 commands.append(command)
+                nav = car.navigation
+                navigation_state = (nav.uid, nav.edge, nav.locked)
+                if navigation_state != navigation_states[index]:
+                    log("NAVIGATION", car=index + 1, uid=nav.uid, tid=nav.tid,
+                        split=nav.split, mergeedge=nav.mergeedge, edge=nav.edge,
+                        selected_exit=nav.selected_exit, locked=nav.locked,
+                        zone_safeexit=bool(nav.reservezone))
+                    navigation_states[index] = navigation_state
                 packet = car.packet
                 states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
                                                               tag_attributes, tick_start,

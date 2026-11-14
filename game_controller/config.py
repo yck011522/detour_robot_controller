@@ -25,6 +25,9 @@ def load(address_path=None, game_path=None):
         raise ValueError("UI snapshot rate cannot exceed control cadence")
     settings["display_fps"] = int(settings["display_fps"])
     settings["video_wash_alpha"] = game.getint("ui", "video_wash_alpha")
+    settings["split_lock_age_ms"] = game.getfloat("navigation", "split_lock_age_ms")
+    if not math.isfinite(settings["split_lock_age_ms"]) or settings["split_lock_age_ms"] <= 0:
+        raise ValueError("split_lock_age_ms must be finite and positive")
     settings["silver_points"] = game.getint("coins", "silver_points")
     settings["gold_points"] = game.getint("coins", "gold_points")
     settings["respawn_seconds"] = game.getfloat("coins", "respawn_seconds")

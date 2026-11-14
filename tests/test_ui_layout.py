@@ -145,6 +145,22 @@ class PlayerLayoutTests(unittest.TestCase):
         self.assertEqual((hud["coins"], hud["hidden_coins"]), (123, (1,)))
         self.assertEqual(self.tag_attributes[6]["video_id"], "2")
 
+    def test_split_hud_uses_effective_locked_exit(self):
+        for split in ("left", "right", "leftright"):
+            self.car.navigation.observe(split, 0, 10, {"tid": "T1", "split": split})
+            for left, right in ((True, False), (False, False), (False, True)):
+                self.car.navigation.steering(left, right, 10)
+                hud = build_display_snapshot(1, self.car, (0, left, right), (None,) * 4,
+                                             self.tag_attributes, 10, .5)
+                overlay = compose_layout_overlay(self.layout_assets, hud,
+                                                  pygame.Surface((700, 700)), 10)
+                self.assertEqual(overlay.get_size(), (1920, 1080))
+            self.car.navigation.steering(True, False, 10.101)
+            hud = build_display_snapshot(1, self.car, (0, 1, 0), (None,) * 4,
+                                         self.tag_attributes, 10.101, .5)
+            self.assertTrue(hud["split_locked"])
+            self.assertEqual(hud["selected_exit"], "straight" if split == "left" else "right")
+
     def test_production_imports_do_not_reach_experiments(self):
         """Inspect production imports and literal runtime paths without importing experiments."""
         for source in (ASSET_DIRECTORY.parent / "game_controller").glob("*.py"):

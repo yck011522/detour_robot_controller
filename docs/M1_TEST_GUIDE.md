@@ -77,6 +77,64 @@ the operator reported a successful Car 1 test run verifying coin behavior, then
 requested increasing respawn from 90 to 120 seconds. The revised duration and
 other cars/four-screen performance remain to be verified on hardware.
 
+### Split/merge filtering (2026-11-14)
+
+Player joystick AUTO applies these PC-owned rules. Admin AUTO and MANUAL bypass
+tag-based steering restrictions and use direct sanitized keyboard commands. Forward
+remains controlled by the driver; a selected edge never initiates driving.
+Left+right physical input is neutral before consulting this table:
+
+| `split` | Left | Neutral | Right |
+|---|---|---|---|
+| `left` | Left edge / left exit | Right edge / straight | Right edge / straight |
+| `right` | Left edge / straight | Left edge / straight | Right edge / right exit |
+| `leftright` | Left edge / left exit | Left edge / left exit | Right edge / right exit |
+
+At an approach tag, selection can change while NFC age is at most **100 ms**.
+Once age exceeds 100 ms, freeze the last selection until a **different UID**
+is observed. The controller advances the last reported age between 20 Hz
+telemetry packets. Adjust `[navigation] split_lock_age_ms` in
+`config/game_config.ini` and restart to change the threshold. Each new approach
+UID, including a redundant approach tag, starts a new selection window.
+
+A repeated UID cannot unlock a choice, even if its reported age becomes fresh
+again. An actually observed unknown UID clears context to ordinary road;
+no-read/zero UID, telemetry loss and mode changes retain context and locks.
+If the first observation of a split is already older than the threshold, use
+the neutral default because no earlier selection exists. Recovery of a car
+rebooting between tags still needs operator verification; the packet has no
+explicit reboot identity.
+
+`mergeedge` forces the labeled edge regardless of steering input. An ordinary
+tag clears both turn bits in player mode. Admin keyboard input does not change
+the player's selected edge; NFC context and lock age continue updating in admin.
+Returning to player mode resumes its current tag rules and any retained lock.
+Existing communication, protection, stop-only, menu
+and quit gates override driving. Conflicting split/merge labels are startup
+errors. No zone reservations are implemented: a tag with `reservezone` forces
+its `safeexit` in player AUTO. Admin AUTO bypasses this steering override too.
+
+The split HUD shows the effective exit, including after locking. Raw input
+indicators remain raw. `NAVIGATION` log events report UID, tag, edge, selected
+exit and lock state whenever these change. Merge forcing has no split graphic.
+
+Offline checks cover the choice table, 100/101 ms boundary, age between packets,
+same-UID rereads, new/unknown/no-read UIDs, merge forcing, safe exits, MANUAL
+bypass and stop gates. Physical acceptance remains pending. For a supervised
+Car 1 test:
+
+1. Use an ordinary split without `reservezone`. While on its approach tag,
+   change left/right and confirm the HUD/command follows the table.
+2. Leave the tag, then change steering after age exceeds 100 ms. Verify the
+   chosen edge remains locked, while forward still stops and resumes movement.
+3. Cross a different approach tag and verify a fresh choice is possible. Cross
+   an ordinary downstream tag and verify turn bits clear. Check the actual
+   branch taken and command/echo timing against the log.
+4. At a labeled merge, try opposing steering and verify the prescribed edge
+   and physical merge behavior. Confirm admin AUTO and MANUAL allow direct
+   keyboard steering at ordinary, split and merge tags, including against a
+   locked choice. Player AUTO zone approaches must take `safeexit`.
+
 ### Recording a monitor
 
 In admin mode press **C**, then **1-4** to choose the car monitor. **U** toggles
@@ -112,10 +170,10 @@ process termination or power loss cannot guarantee a complete final recording.
    on dark orange, changing to dark red while Left Ctrl selects direct control.
    Shared modem/gamepad diagnostics repeat; each screen shows only its own car
    telemetry. Player mode hides the admin controls, retaining a compact health bar.
-4. In player mode, test Car 1's forward/left/right buttons. M1 deliberately sends
-   direct sanitized AUTO bench intent; it does not implement M2's tag-aware
-   split/merge/ordinary-road steering filter. Both physical turn buttons mean
-   neutral. Check raw input and effective command independently.
+4. In player mode, test Car 1's forward/left/right buttons. AUTO now applies
+   the split/merge rules and departure lock described above. Both physical turn
+   buttons mean neutral before filtering. Ordinary tags clear turn bits.
+   Check raw input and effective command independently.
 5. In admin mode, **1-4** select the car; **Up/Left/Right** drive AUTO. Hold
    **Left Ctrl** for MANUAL, with **Down** for reverse. MANUAL left/right alone
    pivot; AUTO turn bits alone do not enable forward speed. Presence does not

@@ -50,9 +50,8 @@ class Telemetry:
 
 
 def movement(forward=False, left=False, right=False, *, manual=False, backward=False):
-    """M1 bench control: sanitize conflicting physical inputs, preserve E15 bits.
+    """Encode movement bits after the PC's tag-aware AUTO steering filter.
 
-    Tag-aware split/merge filtering belongs to M2. M1 labels this as bench mode.
     Both physical turns are treated as neutral, rather than relying on firmware
     tie-breaking. No-turn AUTO remains center-following; MANUAL can pivot.
     """

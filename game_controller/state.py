@@ -1,8 +1,9 @@
-"""Small testable M1 state and command rules; full tag/zone logic starts in M2."""
+"""Accepted telemetry, driving gates and PC intersection filtering."""
 
 from dataclasses import dataclass, field
 
 from .protocol import AUTO_STOP, movement
+from .navigation import Navigation
 
 
 @dataclass
@@ -26,6 +27,7 @@ class Car:
     zero_echo_armed: bool = False
     last_reason: str = ""
     recent: list = field(default_factory=list)
+    navigation: Navigation = field(default_factory=Navigation)
 
     def accept(self, packet, now, session, history, stale_seconds):
         """Accept ordered packets; gaps/resets invalidate echo confidence.
@@ -106,9 +108,16 @@ class Car:
         elif admin and selected != car_id:
             reason = "Admin controls another car"
         self.last_reason = reason
+        if admin:
+            # Keep player context aging without letting keyboard input choose
+            # or overwrite a player branch. Admin commands bypass tag filtering.
+            self.navigation.advance(now)
+            edge = ""
+        else:
+            edge = self.navigation.steering(raw[1], raw[2], now, choose=not reason)
         if reason:
             return AUTO_STOP
         if admin:
             return movement(keyboard[0], keyboard[1], keyboard[2],
                             manual=keyboard[4], backward=keyboard[3])
-        return movement(*raw)
+        return movement(raw[0], edge == "left", edge == "right")

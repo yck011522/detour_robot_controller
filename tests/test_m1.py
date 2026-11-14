@@ -63,7 +63,7 @@ class StateTests(unittest.TestCase):
         self.car.accept(packet(0, 2), 11, 2, {2: (1, 10.02, 10.025)}, .5)
         self.assertEqual(self.command(now=11.01), 1)
         self.car.accept(packet(1, 3), 11.05, 2, {3: (2, 11.02, 11.025)}, .5)
-        self.assertEqual(self.command(now=11.06), 11)
+        self.assertEqual(self.command(now=11.06), 3)
 
     def test_duplicates_and_old_telemetry_do_not_keep_driving_alive(self):
         self.assertEqual(self.car.accept(packet(2, 2), 10.3, 1, {}, .5), "duplicate")
@@ -77,15 +77,15 @@ class StateTests(unittest.TestCase):
         self.assertEqual(car.accept(packet(1, uid=b"efgh"), 1.1, 1, {}, .5), "uid")
 
     def test_admin_and_held_input_recovery(self):
-        self.assertEqual(self.command(), 11)
+        self.assertEqual(self.command(), 3)
         self.assertEqual(self.command(admin=True, selected=2), 1)
         self.assertEqual(self.command(admin=True), 19)
         self.assertEqual(self.command(joystick_ok=False), 1)
-        self.assertEqual(self.command(), 11)  # Same held input, no fresh-press latch.
+        self.assertEqual(self.command(), 3)  # Same held forward input; ordinary road centers.
         self.assertEqual(self.command(admin=True, keyboard=(False, True, False, False, True)), 8)
         self.assertEqual(self.command(stop_only=True), 1)
         self.car.present = False
-        self.assertEqual(self.command(), 11)
+        self.assertEqual(self.command(), 3)
 
     def test_presence_does_not_gate_admin_auto_or_manual(self):
         for present in (True, False):
@@ -101,7 +101,7 @@ class StateTests(unittest.TestCase):
         self.car.packet = replace(self.car.packet, controller=13)
         self.assertEqual(self.command(), 1)
         self.car.packet = replace(self.car.packet, controller=0)
-        self.assertEqual(self.command(), 11)
+        self.assertEqual(self.command(), 3)
 
     def test_stopped_firmware_does_not_create_pc_rearm_deadlock(self):
         self.car.packet = replace(self.car.packet, controller=15, sensors=0)
