@@ -39,8 +39,11 @@ coverage or robot integration.
   Topology currently carries only the admin bit; no zone availability is asserted.
 
 These decisions supersede the older JSON-only and admin AUTO steering text
-in the original plan. Future robot/zone admission policy needs its own review;
-the present steering bypass is not an implemented production interlock policy.
+in the original plan. After this audit the operator clarified that availability
+changes must never redirect a locked branch. Admin remains unrestricted for
+car rescue, with the operator visually checking zone collision. Do not add
+automatic admin steering/zone-admission restrictions from the older plan.
+Robot scheduling and evacuation behavior during admin still need review.
 
 ## Milestone status
 
@@ -77,6 +80,18 @@ firmware tag dictionary is needed. No firmware work is authorized by this audit.
 
 ## Recommended next steps
 
+**New prerequisite identified by the operator:** physical boards P/Q/R/S each
+carry two NFC tags; three are active and one spare. Add an admin-confirmed,
+persisted startup arrangement and a shared dynamic board-UID-to-zone-TID
+resolver before M3/M4. The original static map lookup does not handle board
+relocation. See the extended [dry-run plan](M3_M4_DRY_RUN_PLAN.md) for the data
+model, required registration details, startup persistence and hardware tests.
+**Subsequently implemented, 2026-11-14:** board questions, atomic state recall
+and confirmation, and shared UID resolution use the scanned p1–s3 registrations
+and numbered zone references. Known unused tags are ignored without clearing
+navigation/zone context. All 74 offline tests pass; physical acceptance is
+pending. See [the board guide](../docs/BOARD_STARTUP_GUIDE.md). M3/M4 remain deferred.
+
 1. **Design and implement M3 independently of live robot motion.** Use an
    explicit operator/synthetic board-availability state and synthetic robot
    requests first. Establish the three-board inventory constraint when creating
@@ -91,15 +106,16 @@ firmware tag dictionary is needed. No firmware work is authorized by this audit.
    endurance acceptance. Audit M7's external authoring workflow in parallel
    only if additional registration tooling is needed.
 
-Before coding M3, resolve these interactions in its design:
+M3 design interactions, updated after operator clarification:
 
-- **Locked choice versus changing admission:** if a branch is frozen, later
-  token grant/denial must not silently change it. Define the commitment point,
-  grant timing, and how waiting before a zone works with the 100 ms lock.
-- **Admin recovery versus zone/robot ownership:** define the future admission
-  interlocks separately from today's direct keyboard steering. Earlier plans
-  prohibit bypassing zone admission; the latest implementation bypasses the
-  steering filter. Do not assume those are an agreed production policy.
+- **Locked choice versus changing admission — confirmed:** later availability
+  changes never redirect a locked branch. A locked safeexit remains safeexit;
+  an admitted entry retains its token so the scheduler cannot reclaim that zone
+  until release. Final grant/commit event ordering belongs in the M3 design.
+- **Admin recovery — confirmed:** retain direct admin rescue control, including
+  zone entry. The operator visually checks collision; do not implement the
+  older automatic admin admission restriction. Continue recording context and
+  ownership, without claiming automatic collision prevention in admin.
 - **Evacuation:** reconcile the old forced-exit behavior with a locked branch,
   and decide how its 10-second inactivity/60-second hold timers behave in admin.
 - **Charging/reappearance and unknown location:** retain reservations on loss,
@@ -108,3 +124,5 @@ Before coding M3, resolve these interactions in its design:
 
 The next implementation milestone requires the normal short design review;
 this audit records status and dependencies and does not start M3 implementation.
+The proposed robot-free approach is described in
+[the M3/M4 dry-run plan](M3_M4_DRY_RUN_PLAN.md).

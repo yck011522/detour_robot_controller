@@ -112,7 +112,9 @@ Returning to player mode resumes its current tag rules and any retained lock.
 Existing communication, protection, stop-only, menu
 and quit gates override driving. Conflicting split/merge labels are startup
 errors. No zone reservations are implemented: a tag with `reservezone` forces
-its `safeexit` in player AUTO. Admin AUTO bypasses this steering override too.
+its `safeexit` in player AUTO when its zone has no board in the confirmed startup
+layout. If a board is present, normal split selection is allowed. A locked edge
+is retained. Admin AUTO bypasses this steering override too.
 
 The split HUD shows the effective exit, including after locking. Raw input
 indicators remain raw. `NAVIGATION` log events report UID, tag, edge, selected
@@ -135,7 +137,8 @@ broader coverage remains open. Retain the following supervised Car 1 checklist:
 4. At a labeled merge, try opposing steering and verify the prescribed edge
    and physical merge behavior. Confirm admin AUTO and MANUAL allow direct
    keyboard steering at ordinary, split and merge tags, including against a
-   locked choice. Player AUTO zone approaches must take `safeexit`.
+   locked choice. Player AUTO must allow entry choices into occupied zones and
+   force `safeexit` for empty zones, according to the confirmed board layout.
 
 ### Recording a monitor
 

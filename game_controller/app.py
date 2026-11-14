@@ -1,7 +1,7 @@
 """M1 controller main thread: HID + admin intent + World State tick at 50 Hz.
 
 This diagnostic application never imports UR RTDE or opens a UR/tool socket.
-No zone or board claims are made; zone approaches use the map's safeexit.
+Zone entry checks confirmed board presence; robot reservations remain deferred.
 """
 
 import argparse
@@ -26,6 +26,7 @@ from .state import Car
 from .minimap import ASSET_DIRECTORY, load_tag_attributes
 from .minimap_cache import ensure_minimap_cache
 from .navigation import validate_tags
+from .boards import BoardStartup, TagResolver, ask_boards_console
 
 
 class Log:
@@ -134,6 +135,18 @@ def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
     }
 
 
+def observe_location(car, packet, now, resolver, coins, car_tags):
+    """One accepted UID interpretation for navigation, marker and coin scoring."""
+    match = resolver.lookup(car.uid)
+    if match.kind == "ignored":
+        car.navigation.advance(now)
+        return match, None  # No context transition, marker move or coin visit.
+    if match.kind == "mapped":
+        car_tags[packet.car - 1] = match.tid
+    car.navigation.observe(car.uid, packet.nfc_age_ms, now, resolver.tags.get(match.tid))
+    return match, coins.observe(packet.car, car.uid, now)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, default=0, help="timed run; 0 waits for Q/window close")
@@ -147,6 +160,7 @@ def main():
     log = Log(config["log_directory"])
     modem = joystick = screen = None
     coin_store = None
+    board_startup = None
     players, channels = [], []
     context = multiprocessing.get_context("spawn")
     stop = context.Event()
@@ -179,14 +193,13 @@ def main():
     try:
         tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
         validate_tags(tag_attributes)
-        registered_tags = {attributes["nfc_uid"]: number
-                           for number, attributes in tag_attributes.items()
-                           if attributes["nfc_uid"]}
+        resolver = TagResolver(tag_attributes, ROOT / "config/dynamic_nfc.ini")
+        board_startup = BoardStartup(ROOT / "config/board_state.ini")
         coin_store = CoinStore(ROOT / "config/coin_count.ini")
-        coin_game = CoinGame(tag_attributes, coin_store.totals,
+        coin_game = CoinGame(resolver.tags, coin_store.totals,
                              silver_points=settings["silver_points"],
                              gold_points=settings["gold_points"],
-                             respawn_seconds=settings["respawn_seconds"])
+                             respawn_seconds=settings["respawn_seconds"], resolver=resolver)
         log("COIN_TOTALS_LOADED", totals=coin_game.totals,
             path=str(coin_store.path), availability="all coins available")
         if not args.no_video:
@@ -206,6 +219,10 @@ def main():
         modem = Modem(config["port"], stream, settings["command_expiry_s"], settings["modem_retry_s"], log)
         # Hidden SDL event owner for HID only; all visible controls use the four displays.
         screen = pygame.display.set_mode((1, 1), pygame.HIDDEN)
+        if args.no_video:
+            # No visible windows in this diagnostic mode; no driving commands
+            # have been submitted while its console questionnaire is open.
+            ask_boards_console(board_startup)
         if not args.no_video:
             from .monitors import resolve_serials
             indexes = resolve_serials([serial for _, _, serial in config["cameras"]])
@@ -234,6 +251,25 @@ def main():
                     quit_pending = False
                     keyboard, keyboard_at = (False,) * 5, 0
                     log("QUIT_CANCELLED")
+                return
+            if not board_startup.confirmed:
+                keyboard, keyboard_at = (False,) * 5, 0
+                if key == keys["quit"]:
+                    quit_pending = True
+                elif board_startup.future is None:
+                    if key == keys["accept"]:
+                        board_startup.confirm()
+                    elif key == keys["left"]:
+                        board_startup.cycle(-1)
+                    elif key == keys["right"]:
+                        board_startup.cycle(1)
+                    elif key in (keys["forward"], keys["backward"]):
+                        board_startup.selected = (board_startup.selected +
+                                                  (-1 if key == keys["forward"] else 1)) % 4
+                    else:
+                        for index in range(4):
+                            if key == keys[f"car_{index + 1}"]:
+                                board_startup.selected = index
                 return
             if capture_menu:
                 if key == keys["cancel"]:
@@ -327,7 +363,7 @@ def main():
                     kind, car, *values = message
                     if kind == "quit":
                         key_action(keys["quit"])
-                    elif kind == "action" and admin and not quit_pending and not capture_menu:
+                    elif kind == "action" and admin and board_startup.confirmed and not quit_pending and not capture_menu:
                         if values[0] == "presence":
                             cars[car - 1].present = not cars[car - 1].present
                             log("PRESENCE", car=car, present=cars[car - 1].present)
@@ -356,6 +392,14 @@ def main():
                         log("DISPLAY_FAILED", car=car, error=values[0])
             except queue.Empty:
                 pass
+            if board_startup.poll():
+                resolver.assign(board_startup.saved)
+                for car in cars:
+                    car.navigation.board_zones = resolver.board_zones
+                keyboard, keyboard_at = (False,) * 5, 0
+                log("BOARDS_CONFIRMED", arrangement=board_startup.saved,
+                    path=str(board_startup.path), bindings=resolver.by_uid,
+                    ignored_uids=sorted(resolver.ignored_uids))
             received, sent, model = modem.drain()
             if model["session"] != session:
                 session = model["session"]
@@ -373,13 +417,12 @@ def main():
                 car = cars[packet.car - 1]
                 previous = (car.packet.controller, car.packet.follower, car.packet.sensors not in (0, 255)) if car.packet else None
                 result = car.accept(packet, received_at, received_session, history, settings["telemetry_stale_s"])
-                if result not in ("duplicate", "stale") and car.uid in registered_tags:
-                    last_known_tags[packet.car - 1] = registered_tags[car.uid]
-                if result not in ("duplicate", "stale"):
-                    number = registered_tags.get(car.uid)
-                    car.navigation.observe(car.uid, packet.nfc_age_ms, received_at,
-                                           tag_attributes.get(number))
-                    award = coin_game.observe(packet.car, car.uid, received_at)
+                if result not in ("duplicate", "stale") and board_startup.confirmed:
+                    match, award = observe_location(car, packet, received_at, resolver,
+                                                    coin_game, last_known_tags)
+                    if match.kind == "ignored" and result == "uid":
+                        log("NFC_IGNORED", car=packet.car, uid=car.uid,
+                            reason="known board tag without a slot in the confirmed layout")
                     if award is not None:
                         coin_store.submit(coin_game.totals)
                         log("COIN_COLLECTED", **award)
@@ -404,7 +447,8 @@ def main():
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
                 command = car.command(raw, tick_start, settings["telemetry_stale_s"], settings["echo_stale_s"],
                                       model["connected"], joystick is not None, admin, selected, index + 1,
-                                      keyboard, args.stop_only or quitting or quit_pending or capture_menu)
+                                      keyboard, args.stop_only or quitting or quit_pending or capture_menu
+                                      or not board_startup.confirmed)
                 commands.append(command)
                 nav = car.navigation
                 navigation_state = (nav.uid, nav.edge, nav.locked)
@@ -412,7 +456,7 @@ def main():
                     log("NAVIGATION", car=index + 1, uid=nav.uid, tid=nav.tid,
                         split=nav.split, mergeedge=nav.mergeedge, edge=nav.edge,
                         selected_exit=nav.selected_exit, locked=nav.locked,
-                        zone_safeexit=bool(nav.reservezone))
+                        zone_safeexit=bool(nav.reservezone and nav.reservezone not in nav.board_zones))
                     navigation_states[index] = navigation_state
                 packet = car.packet
                 states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
@@ -426,6 +470,7 @@ def main():
                                "capture_menu": capture_menu, "capture_car": capture_car,
                                "capture_ui": capture_ui, "capture_request": capture_request,
                                "capture_status": capture_status,
+                               "board_startup": board_startup.snapshot(),
                                "global_status": f"Modem {config['port']}: {'connected' if model['connected'] else 'reconnecting'} | Gamepad: {'connected' if joystick else 'missing'}",
                                "global_counts": f"World States: {generated_total} | Skipped ticks: {skipped} | Invalid lines: {model['invalid_lines']}",
                                "feedback": f"Fresh ({tick_start-car.received:.2f}s)" if car.feedback_ok(tick_start, settings["telemetry_stale_s"]) else "Missing / stale",
@@ -517,6 +562,8 @@ def main():
         events.cancel_join_thread()
         events.close()
         pygame.quit()
+        if board_startup:
+            board_startup.close()
         if coin_store:
             try:
                 coin_store.close()

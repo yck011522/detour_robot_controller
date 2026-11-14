@@ -9,34 +9,39 @@ import threading
 
 class CoinGame:
     def __init__(self, tags, totals=(0, 0, 0, 0), *, silver_points=1,
-                 gold_points=10, respawn_seconds=120):
+                 gold_points=10, respawn_seconds=120, resolver=None):
         if any(type(value) is not int or value < 0
                for value in (*totals, silver_points, gold_points)) or len(totals) != 4:
             raise ValueError("Coin totals and point values must be nonnegative integers")
         if not math.isfinite(respawn_seconds) or respawn_seconds <= 0:
             raise ValueError("Coin respawn_seconds must be finite and positive")
         self.tags = tags
+        self.resolver = resolver
         self.totals = list(totals)
         self.points = (silver_points, gold_points)
         self.respawn_seconds = respawn_seconds
         self.last_uid = [None] * 4
         self.cooldowns = {}
         self.by_uid = {}
-        for number, tag in tags.items():
-            uid = tag["nfc_uid"]
-            if not uid:
-                continue
-            if uid in self.by_uid:
-                raise ValueError(f"Duplicate NFC UID: {uid}")
-            self.by_uid[uid] = number
+        if resolver is None:
+            for number, tag in tags.items():
+                uid = tag["nfc_uid"]
+                if not uid:
+                    continue
+                if uid in self.by_uid:
+                    raise ValueError(f"Duplicate NFC UID: {uid}")
+                self.by_uid[uid] = number
 
     def observe(self, car, uid, now):
         """Process accepted telemetry in both modes. No-read never means departure."""
         index = car - 1
+        match = self.resolver.lookup(uid) if self.resolver is not None else None
+        if match is not None and match.kind in ("ignored", "no_read"):
+            return None
         if not uid or uid == self.last_uid[index]:
             return None
         self.last_uid[index] = uid
-        number = self.by_uid.get(uid)
+        number = match.tid if match is not None else self.by_uid.get(uid)
         if number is None:
             return None
         tag = self.tags[number]

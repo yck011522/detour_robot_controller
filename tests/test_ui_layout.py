@@ -72,6 +72,18 @@ class PlayerLayoutTests(unittest.TestCase):
         self.assertEqual(image.get_size(), (1920, 1080))
         self.assertIn(("--", "orbitron_bold", 36, (34, 38, 45)), self.layout_assets["text"])
 
+    def test_board_questions_render_and_disable_other_panel_actions(self):
+        from game_controller.display import draw_panel, panel_action, panel_theme
+        state = {"admin": False, "board_startup": {
+            "active": True, "rows": (("P", "C"), ("Q", "A"), ("R", "B"), ("S", "spare")),
+            "selected": 2, "saving": False, "error": "Visually check board locations."}}
+        surface = pygame.Surface((1920, 365), pygame.SRCALPHA)
+        draw_panel(surface, state, Mock(last_frame=0), 1,
+                   pygame.font.Font(None, 32), pygame.font.Font(None, 26))
+        self.assertEqual(panel_theme(state)[0], "Confirm floorboards")
+        self.assertIsNone(panel_action((30, 320), {**state, "admin": True}))
+        self.assertEqual(surface.get_at((1919, 364)).a, 240)
+
     def test_pause_priority_and_presence_are_separate_from_freshness(self):
         """Not Present requests telemetry artwork even with fresh accepted feedback."""
         baseline = compose_layout_overlay(self.layout_assets, self.snapshot, None, 0)

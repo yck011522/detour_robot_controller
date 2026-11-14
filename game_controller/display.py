@@ -79,6 +79,8 @@ def panel_theme(state):
     """Only the selected admin car gets orange/red; all others are paused grey."""
     if state.get("quit_pending"):
         return "Confirm quit", (60, 62, 67, 240)
+    if state.get("board_startup", {}).get("active"):
+        return "Confirm floorboards", (65, 67, 72, 240)
     if not state.get("admin"):
         return "Player control", (12, 17, 25, 215)
     if state.get("selected") != state.get("car"):
@@ -90,7 +92,8 @@ def panel_theme(state):
 
 def panel_action(position, state):
     """Mouse controls live on each car's own admin overlay, never a fifth panel."""
-    if not state.get("admin") or state.get("quit_pending") or state.get("capture_menu"):
+    if (not state.get("admin") or state.get("quit_pending") or state.get("capture_menu")
+            or state.get("board_startup", {}).get("active")):
         return None
     x, y = position
     if 300 <= y < 342:
@@ -105,7 +108,8 @@ def draw_panel(surface, state, camera, video_stale, font, small):
     now = time.perf_counter()
     active = camera.last_frame and now - camera.last_frame <= video_stale
     title, background = panel_theme(state)
-    admin = state.get("admin") or state.get("quit_pending")
+    startup = state.get("board_startup", {})
+    admin = state.get("admin") or state.get("quit_pending") or startup.get("active")
     pygame.draw.rect(surface, background, (0, 0, surface.get_width(), 365 if admin else 100))
     white, dim = (240, 240, 245), (200, 207, 215)
 
@@ -118,6 +122,18 @@ def draw_panel(surface, state, camera, video_stale, font, small):
         line("All car driving is paused while this confirmation is open.", 108)
         line(state.get("global_status", ""), 152, dim)
         line(f"Car {state.get('car', '?')}: {state.get('feedback', 'Waiting for feedback')}", 190)
+        return
+    if startup.get("active"):
+        line("Confirm physical floorboard locations", 12, large=True)
+        for index, (board, location) in enumerate(startup["rows"]):
+            marker = ">" if index == startup["selected"] else " "
+            line(f"{marker} {index + 1}. Board {board}: {location.upper()}", 57 + index * 42,
+                 (255, 185, 90) if index == startup["selected"] else white)
+        line("1-4 or Up/Down: select board | Left/Right: change location | Enter: confirm | Q: quit", 235)
+        line("Locations: A / B / C / D / GRIPPER / SPARE. Three active boards; one spare.", 270, dim)
+        line("All driving is paused. Visually verify the recalled layout before confirming.", 304, dim)
+        line(startup.get("error") or ("Saving layout..." if startup.get("saving") else ""),
+             337, (255, 180, 90))
         return
     if state.get("capture_menu"):
         line("Video capture", 15, large=True)
@@ -250,7 +266,8 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
                     layout_surface = compose_layout_overlay(layout_assets, hud, map_surface, now)
                     previous_overlay_key = overlay_key
             # Admin/menu text is drawn over the visitor HUD, including pause artwork.
-            panel_visible = bool(state.get("admin") or state.get("quit_pending") or state.get("capture_menu"))
+            panel_visible = bool(state.get("admin") or state.get("quit_pending") or state.get("capture_menu")
+                                 or state.get("board_startup", {}).get("active"))
             overlay_changed = overlay_changed or panel_visible or previous_panel_visible != panel_visible
             if overlay_changed:
                 overlay.fill((0, 0, 0, 0))

@@ -1,5 +1,19 @@
 # Detour robot controller
 
+## Robot pose teaching
+
+```powershell
+.\.venv\Scripts\python.exe utility/robot_pose_teaching.py
+```
+
+Uses the robot host in `config/address.ini` and displays live joint positions
+and TCP pose through RTDE receive only. Position the arm using its normal
+controls, press **S** to capture, then type a pose name and press Enter to save
+to `config/robot_pose.ini`. A blank name cancels; replacing an existing name
+requires confirmation. Press **Q** or Ctrl+C to exit. Joint angles are radians;
+TCP values are base-relative x/y/z in metres and rx/ry/rz rotation vector in
+radians, using the robot's active TCP offset. The utility does not command motion.
+
 ## M1 controller and diagnostic UI
 
 ```powershell
@@ -42,7 +56,9 @@ still controls stop/resume. Adjust `[navigation] split_lock_age_ms` in
 `config/game_config.ini`, then restart. Merges force the labeled edge; ordinary
 tags clear turn bits. Admin AUTO and MANUAL use direct keyboard commands and
 bypass tag-based steering, including the split lock and ordinary-tag centering.
-Zone reservation remains deferred: player AUTO forces `safeexit` at zone approaches.
+Player AUTO permits normal split choices into zones with a board in the confirmed
+startup layout; empty zones force `safeexit`. Branch locks remain authoritative.
+Robot/car reservations are still deferred.
 The split HUD shows the effective branch; `NAVIGATION` logs record edge and lock
 changes. The operator confirmed intersection behavior and the admin bypass
 work on the current setup. Broader map/car and measured timing coverage remain.
@@ -58,6 +74,40 @@ For an automated stop-only observation:
 ```powershell
 .\.venv\Scripts\python.exe -m game_controller --stop-only --seconds 30
 ```
+
+## USB NFC tag registration
+
+The controller starts with board-location questions on all four displays.
+Select P/Q/R/S with 1–4, cycle locations with Left/Right, and press Enter to
+confirm. Driving stays stopped until the layout is saved. The arrangement is
+recalled from `config/board_state.ini` but requires confirmation each launch.
+See [board startup instructions](docs/BOARD_STARTUP_GUIDE.md).
+
+Physical registrations resolve the CSV's `<a2>` etc. references using that
+layout. Navigation, minimap and coins share the mapping. Known unused board
+tags are ignored and preserve the preceding navigation/zone context.
+
+Run the wired scanner utility and select its serial port from the list:
+
+```powershell
+.\.venv\Scripts\python.exe utility/NFC_tag_scanner.py
+# Or select its known port directly:
+.\.venv\Scripts\python.exe utility/NFC_tag_scanner.py --port COM12
+```
+
+Uses the existing wired scanner protocol at 115200 baud. The console displays
+the latest UID, age and reader status. Press **S**, then type a name such as
+`p1` and press Enter to save that captured UID. Continue scanning/naming tags;
+press **Q** at the live display or Ctrl+C to quit. A blank name cancels saving.
+Serial reading continues during naming, but the captured UID stays fixed.
+
+Registrations are stored as `name = UID` in the `[tags]` section of
+`config/dynamic_nfc.ini`, with eight uppercase hexadecimal digits. Existing
+entries survive subsequent sessions. Replacing an existing name asks for
+confirmation; assigning one UID to multiple names is rejected. Files are
+replaced atomically after each save. Close the Rhino scanner before opening
+the same port here. This utility registers physical tags; the controller's
+startup layout determines their destination TIDs.
 
 ## Python environment setup (Windows PowerShell)
 

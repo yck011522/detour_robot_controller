@@ -32,7 +32,7 @@ def load_tag_attributes(asset_directory):
                 "nfc_uid": row["nfc_uid"].strip().lower(),
                 "video_id": row.get("video_id", "").strip(),
                 **{key: row.get(key, "").strip() for key in
-                   ("split", "mergeedge", "safeexit", "reservezone")},
+                   ("split", "mergeedge", "safeexit", "reservezone", "inzone")},
             }
             for row in csv.DictReader(attribute_file)
         }

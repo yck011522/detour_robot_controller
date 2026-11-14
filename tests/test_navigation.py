@@ -86,6 +86,29 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(nav.steering(True, False, 0), safeexit)
             self.assertEqual(nav.steering(False, True, 1), safeexit)
 
+    def test_board_present_allows_normal_choice_and_gripper_does_not(self):
+        nav = Navigation(board_zones=frozenset(("A", "B", "D")))
+        nav.observe("approach-A", 0, 0,
+                    approach("right", reservezone="A", safeexit="left"))
+        self.assertEqual(nav.steering(False, True, 0), "right")
+        self.assertEqual(nav.steering(False, False, .02), "left")
+        nav.observe("approach-C", 0, .03,
+                    approach("right", reservezone="C", safeexit="left"))
+        self.assertEqual(nav.steering(False, True, .03), "left")
+
+    def test_board_presence_changes_cannot_redirect_locked_choice(self):
+        nav = Navigation()
+        nav.observe("approach", 0, 0, approach(reservezone="A", safeexit="left"))
+        self.assertEqual(nav.steering(False, True, 0), "left")
+        nav.steering(False, True, .101)
+        nav.board_zones = frozenset(("A",))
+        self.assertEqual(nav.steering(False, True, .12), "left")
+        nav.observe("next-approach", 0, .13, approach(reservezone="A", safeexit="left"))
+        self.assertEqual(nav.steering(False, True, .13), "right")
+        nav.steering(True, False, .24)
+        nav.board_zones = frozenset()
+        self.assertEqual(nav.steering(True, False, .25), "right")
+
     def test_merge_forces_edge_and_ordinary_road_clears_turns(self):
         for edge in ("left", "right"):
             nav = Navigation()

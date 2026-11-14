@@ -1,4 +1,4 @@
-"""PC-only split/merge steering; zone approaches use safeexit until M3."""
+"""PC-only split/merge steering with confirmed board-presence admission."""
 
 from dataclasses import dataclass
 import math
@@ -18,6 +18,8 @@ def validate_tags(tags):
             raise ValueError(f"{name}: invalid safeexit")
         if tag.get("reservezone", "") not in ("", "A", "B", "C", "D"):
             raise ValueError(f"{name}: invalid reservezone")
+        if tag.get("inzone", "") not in ("", "A", "B", "C", "D"):
+            raise ValueError(f"{name}: invalid inzone")
         if tag.get("reservezone") and (not split or tag.get("safeexit") not in ("left", "right")):
             raise ValueError(f"{name}: zone approach requires split and safeexit")
 
@@ -39,10 +41,12 @@ class Navigation:
     mergeedge: str = ""
     safeexit: str = ""
     reservezone: str = ""
+    inzone: str = ""
     edge: str = ""
     locked: bool = False
     age_ms: int = 0
     received: float = 0
+    board_zones: frozenset = frozenset()
 
     def __post_init__(self):
         if not math.isfinite(self.lock_age_ms) or self.lock_age_ms <= 0:
@@ -60,6 +64,7 @@ class Navigation:
             self.mergeedge = tag.get("mergeedge", "")
             self.safeexit = tag.get("safeexit", "")
             self.reservezone = tag.get("reservezone", "")
+            self.inzone = tag.get("inzone", "")
             self.edge, self.locked = "", False
         self.age_ms, self.received = age_ms, now
         self.advance(now)
@@ -77,7 +82,9 @@ class Navigation:
             return self.edge
         if not self.split:
             return ""
-        if self.reservezone:
+        if self.locked and self.edge:
+            return self.edge
+        if self.reservezone and self.reservezone not in self.board_zones:
             self.edge = self.safeexit
         elif not self.edge:
             # A first observation already older than the threshold has no prior
