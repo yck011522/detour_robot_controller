@@ -30,13 +30,14 @@ def load_tag_attributes(asset_directory):
                 "floor": row["floor"],
                 "track": row["track"],
                 "nfc_uid": row["nfc_uid"].strip().lower(),
+                "video_id": row.get("video_id", "").strip(),
             }
             for row in csv.DictReader(attribute_file)
         }
 
 
 def load_minimap_assets(asset_directory):
-    """Load cached sprites and group static coins for each car and floor."""
+    """Load cached sprites and group initially available coins per car/floor."""
     assets = {
         "floors": {
             floor: asset_directory / f"Floor{floor}.png" for floor in FLOOR_ORDER
@@ -58,7 +59,7 @@ def load_minimap_assets(asset_directory):
         },
     }
     assets["layers"] = load_cached_layers((MINIMAP_SIZE,))
-    # Static coins are grouped once; collection and respawning remain deferred.
+    # Reuse grouped layers whenever every coin on a floor is available.
     assets["grouped_coins"] = {}
     tag_attributes = load_tag_attributes(asset_directory)
     for car_number in range(1, 5):
@@ -109,11 +110,16 @@ def compose_minimap(
     active_car,
     car_tags,
     reserved_zones=(),
+    hidden_coins=(),
 ):
     """Compose cached static floor stacks and four cars at the fixed minimap size."""
     layers = assets["layers"]
     grouped_coins = assets["grouped_coins"]
     floor_cache = assets["floor_cache"]
+    hidden_coins = frozenset(hidden_coins)
+    if assets.get("hidden_coins", frozenset()) != hidden_coins:
+        floor_cache.clear()  # Do not accumulate surfaces for past coin combinations.
+    assets["hidden_coins"] = hidden_coins
     canvas = pygame.Surface((MINIMAP_SIZE, MINIMAP_SIZE), pygame.SRCALPHA)
     active_tag = car_tags[active_car - 1]
     active_floor = tag_attributes[active_tag]["floor"] if active_tag is not None else None
@@ -146,10 +152,17 @@ def compose_minimap(
                         draw_layer(static_surface, assets["zones"][zone], floor_alpha)
             if (active_car, floor) in assets["tracks"]:
                 draw_layer(static_surface, assets["tracks"][(active_car, floor)])
-            coin_image, coin_offset = grouped_coins[(active_car, floor)]
-            static_surface.blit(
-                coin_image, coin_offset, special_flags=pygame.BLEND_PREMULTIPLIED
-            )
+            floor_coins = [number for number, tag in tag_attributes.items()
+                           if tag["track"] == str(active_car) and tag["floor"] == floor]
+            if hidden_coins.isdisjoint(floor_coins):
+                coin_image, coin_offset = grouped_coins[(active_car, floor)]
+                static_surface.blit(
+                    coin_image, coin_offset, special_flags=pygame.BLEND_PREMULTIPLIED
+                )
+            else:
+                for number in floor_coins:
+                    if number not in hidden_coins:
+                        draw_layer(static_surface, assets["coins"][number])
             floor_cache[floor_key] = static_surface
         canvas.blit(
             floor_cache[floor_key], (0, 0), special_flags=pygame.BLEND_PREMULTIPLIED

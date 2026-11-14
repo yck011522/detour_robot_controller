@@ -207,6 +207,9 @@ class StartupTests(unittest.TestCase):
         config = load()
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             config["log_directory"] = Path(directory)
+            store_class = app.CoinStore
+            stack.enter_context(patch.object(app, "CoinStore", side_effect=lambda path:
+                                             store_class(Path(directory) / "coin_count.ini")))
             stack.enter_context(patch.object(app, "load", return_value=config))
             stack.enter_context(patch("sys.argv", ["m1", "--stop-only", "--no-video"]))
             for method in ("display.init", "font.init", "joystick.init", "quit"):

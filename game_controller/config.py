@@ -25,6 +25,13 @@ def load(address_path=None, game_path=None):
         raise ValueError("UI snapshot rate cannot exceed control cadence")
     settings["display_fps"] = int(settings["display_fps"])
     settings["video_wash_alpha"] = game.getint("ui", "video_wash_alpha")
+    settings["silver_points"] = game.getint("coins", "silver_points")
+    settings["gold_points"] = game.getint("coins", "gold_points")
+    settings["respawn_seconds"] = game.getfloat("coins", "respawn_seconds")
+    if min(settings["silver_points"], settings["gold_points"]) < 0:
+        raise ValueError("Coin point values must be nonnegative")
+    if not math.isfinite(settings["respawn_seconds"]) or settings["respawn_seconds"] <= 0:
+        raise ValueError("Coin respawn_seconds must be finite and positive")
     present = {int(value.strip()) for value in game["m1"]["present_cars"].split(",") if value.strip()}
     if not present <= {1, 2, 3, 4}:
         raise ValueError("present_cars must contain car IDs 1-4")

@@ -26,8 +26,15 @@ indicators, and pause artwork use live controller state. Markers use registered
 `nfc_uid` values in `asset/map_attributes.csv` (eight hexadecimal digits); replace
 the CSV and restart to load new registrations. Unknown locations have no marker.
 Not Present hides that car on every map and shows telemetry-loss artwork on its
-own screen. Coin totals stay at zero, coin markers stay static, and split/zone
-mechanics remain deferred. In `config/game_config.ini`, `[ui] video_wash_alpha`
+own screen. NFC arrivals collect coins on the car's own track in both player and
+admin mode: silver earns 1 point; tags with `video_id` are gold and earn 10.
+Collected coins disappear for 120 seconds (2 minutes). After respawn, another collection
+requires observing a different tag and returning; staying parked does not score.
+Adjust `silver_points`, `gold_points`, and `respawn_seconds` under `[coins]` in
+`config/game_config.ini`, then restart. Totals are saved in `config/coin_count.ini`;
+all coins are available on startup, with the saved totals retained. Stop the
+controller before editing totals. Split/zone mechanics remain deferred.
+In `config/game_config.ini`, `[ui] video_wash_alpha`
 controls the gray video wash (0?255, initially 0). Display pacing targets 60 FPS;
 the independent control loop remains 50 Hz.
 

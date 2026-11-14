@@ -18,6 +18,7 @@ import time
 import pygame
 
 from .config import ROOT, load
+from .coins import CoinGame, CoinStore
 from .display import offer, play
 from .modem import Modem, open_modem
 from .protocol import AUTO_STOP, CONTROLLERS, FOLLOWERS
@@ -108,7 +109,7 @@ def bindings_from_config(names):
 
 
 def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
-                           now, telemetry_timeout):
+                           now, telemetry_timeout, coins=0, hidden_coins=()):
     """Map accepted telemetry to HUD values without changing driving eligibility."""
     packet = car.packet  # Last accepted values remain visible during telemetry loss.
     tag_number = car_tags[car_number - 1]
@@ -125,8 +126,8 @@ def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
         "right_speed": packet.right_mm_s / 1000 if packet else 0,
         "battery_low": bool(packet and packet.controller == 14),
         "line_lost": bool(packet and packet.follower == 10),
-        # Game mechanics will supply these display values in a later change.
-        "coins": 0, "split": "", "selected_exit": "", "video_present": False,
+        "coins": coins, "hidden_coins": tuple(hidden_coins),
+        "split": "", "selected_exit": "", "video_present": False,
     }
 
 
@@ -142,6 +143,7 @@ def main():
     settings = config["settings"]
     log = Log(config["log_directory"])
     modem = joystick = screen = None
+    coin_store = None
     players, channels = [], []
     context = multiprocessing.get_context("spawn")
     stop = context.Event()
@@ -173,6 +175,13 @@ def main():
         registered_tags = {attributes["nfc_uid"]: number
                            for number, attributes in tag_attributes.items()
                            if attributes["nfc_uid"]}
+        coin_store = CoinStore(ROOT / "config/coin_count.ini")
+        coin_game = CoinGame(tag_attributes, coin_store.totals,
+                             silver_points=settings["silver_points"],
+                             gold_points=settings["gold_points"],
+                             respawn_seconds=settings["respawn_seconds"])
+        log("COIN_TOTALS_LOADED", totals=coin_game.totals,
+            path=str(coin_store.path), availability="all coins available")
         if not args.no_video:
             ensure_minimap_cache(target_sizes=(700,))
         pygame.display.init()
@@ -359,6 +368,11 @@ def main():
                 result = car.accept(packet, received_at, received_session, history, settings["telemetry_stale_s"])
                 if result not in ("duplicate", "stale") and car.uid in registered_tags:
                     last_known_tags[packet.car - 1] = registered_tags[car.uid]
+                if result not in ("duplicate", "stale"):
+                    award = coin_game.observe(packet.car, car.uid, received_at)
+                    if award is not None:
+                        coin_store.submit(coin_game.totals)
+                        log("COIN_COLLECTED", **award)
                 current = (packet.controller, packet.follower, packet.sensors not in (0, 255))
                 if result not in ("duplicate", "stale") and current != previous:
                     log("CAR_STATE", car=packet.car, controller=packet.controller,
@@ -368,6 +382,8 @@ def main():
                     log("NFC_UID" if result == "uid" else "TELEMETRY_STALE", car=packet.car, uid=car.uid, sequence=packet.sequence)
             if model.get("overflow") or log.failed:
                 raise RuntimeError("Diagnostic/event queue failed or overflowed; stopping driving")
+            if coin_store.error:
+                raise RuntimeError(f"Could not save coin totals: {coin_store.error}")
             if tick_start - keyboard_at > settings["keyboard_stale_s"]:
                 keyboard = (False,) * 5
             # Presence hides markers on every screen, without discarding their locations.
@@ -383,7 +399,9 @@ def main():
                 packet = car.packet
                 states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
                                                               tag_attributes, tick_start,
-                                                              settings["telemetry_stale_s"]),
+                                                              settings["telemetry_stale_s"],
+                                                              coin_game.totals[index],
+                                                              coin_game.hidden(index + 1, tick_start)),
                                "car": index + 1, "admin": admin, "stop_only": args.stop_only,
                                "present": car.present, "selected": selected, "raw": raw,
                                "manual": bool(admin and keyboard[4]), "quit_pending": quit_pending,
@@ -481,6 +499,12 @@ def main():
         events.cancel_join_thread()
         events.close()
         pygame.quit()
+        if coin_store:
+            try:
+                coin_store.close()
+            except Exception as error:
+                log("COIN_SAVE_FAILED", error=str(error))
+                outcome = "FAIL"
         log("RESULT", outcome=outcome, generated=generated_total, skipped_ticks=skipped,
             profile="M1 bench; UR/tool untouched", stop_only=args.stop_only)
         log.close()

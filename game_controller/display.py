@@ -233,14 +233,16 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
                 capture_path = desired_path
                 recorder = Recorder(capture_path, settings["display_fps"])
                 events.put_nowait(("capture_status", car, capture_path, "recording", ""))
-            # Map layers only change when a visible car moves or presence changes.
+            # Coin respawns can change the map while all cars are stationary.
             hud = state.get("hud")
             overlay_changed = False
             if hud is not None:
                 hud["video_present"] = bool(camera.last_frame and now - camera.last_frame <= settings["video_stale_s"])
-                if hud["car_tags"] != previous_map_tags:
-                    map_surface = compose_minimap(tag_attributes, map_assets, car, hud["car_tags"])
-                    previous_map_tags = hud["car_tags"]
+                map_key = (hud["car_tags"], hud.get("hidden_coins", ()))
+                if map_key != previous_map_tags:
+                    map_surface = compose_minimap(tag_attributes, map_assets, car, hud["car_tags"],
+                                                  hidden_coins=hud.get("hidden_coins", ()))
+                    previous_map_tags = map_key
                 overlay_key = (tuple(hud.items()),
                                int(now / VIDEO_BLINK_SECONDS) % 2 if hud["video_present"] else 0)
                 overlay_changed = overlay_key != previous_overlay_key

@@ -42,6 +42,41 @@ unconfirmed and make the run result FAIL.
 
 ## First supervised driving test
 
+### Coin collection (2026-11-14)
+
+Coin scoring uses accepted NFC telemetry in player and admin mode. Each car
+collects only tags whose `track` equals its car number. A nonempty `video_id`
+means gold (10 points); other track tags are silver (1 point). Set these values
+and the default 120-second (2-minute) respawn delay in `[coins]` in `config/game_config.ini`.
+Restart after changing settings or the CSV.
+
+`config/coin_count.ini` stores each car's cumulative points under `[coins]`,
+using `car_1` through `car_4`. Writes run outside the control loop and replace
+the file atomically. Normal shutdown flushes pending totals. An abrupt exit
+may lose the latest pending update. A malformed totals file reports a startup
+failure rather than resetting scores; a runtime save failure is reported and
+ends the run through the existing stop procedure. Stop the controller before
+manually editing totals. Restart retains totals and resets coin availability.
+
+For supervised hardware acceptance:
+
+1. Note the current total. Drive over a silver tag on that car's track and
+   verify +1 and disappearance on its minimap. Repeated telemetry adds nothing.
+2. Visit a tag with `video_id` on that track and verify +10. Confirm collection
+   in both admin and player mode; the log records `COIN_COLLECTED` with points
+   and the resulting total.
+3. Wait 120 seconds (or temporarily configure a shorter delay). The coin should
+   reappear even while the car is parked. It must not score again until the PC
+   observes a different nonempty UID and then a return to this tag. Returning
+   before respawn and waiting there must also add no points.
+4. Restart normally. Verify totals are retained and every coin is available.
+
+The 43 offline tests pass, including synthetic scoring/cooldown visits, INI
+round trips/error handling and minimap disappearance/restoration. On 2026-11-14,
+the operator reported a successful Car 1 test run verifying coin behavior, then
+requested increasing respawn from 90 to 120 seconds. The revised duration and
+other cars/four-screen performance remain to be verified on hardware.
+
 ### Recording a monitor
 
 In admin mode press **C**, then **1-4** to choose the car monitor. **U** toggles

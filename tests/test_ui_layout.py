@@ -130,6 +130,21 @@ class PlayerLayoutTests(unittest.TestCase):
             self.assertEqual(load_tag_attributes(Path(directory))[1]["floor"], "2")
             self.assertEqual(load_tag_attributes(Path(directory))[1]["nfc_uid"], "01020304")
 
+    def test_collection_hides_coin_and_respawn_restores_map_without_movement(self):
+        tags = (None,) * 4
+        initial = compose_minimap(self.tag_attributes, self.map_assets, 1, tags)
+        collected = compose_minimap(self.tag_attributes, self.map_assets, 1, tags,
+                                    hidden_coins=(1,))
+        self.assertNotEqual(pygame.image.tobytes(initial, "RGBA"),
+                            pygame.image.tobytes(collected, "RGBA"))
+        restored = compose_minimap(self.tag_attributes, self.map_assets, 1, tags)
+        self.assertEqual(pygame.image.tobytes(initial, "RGBA"),
+                         pygame.image.tobytes(restored, "RGBA"))
+        hud = build_display_snapshot(1, self.car, (0, 0, 0), tags,
+                                     self.tag_attributes, 10, .5, 123, (1,))
+        self.assertEqual((hud["coins"], hud["hidden_coins"]), (123, (1,)))
+        self.assertEqual(self.tag_attributes[6]["video_id"], "2")
+
     def test_production_imports_do_not_reach_experiments(self):
         """Inspect production imports and literal runtime paths without importing experiments."""
         for source in (ASSET_DIRECTORY.parent / "game_controller").glob("*.py"):
