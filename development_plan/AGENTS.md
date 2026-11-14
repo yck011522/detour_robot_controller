@@ -1,6 +1,16 @@
 # Agent instructions — deTour scaffolding game controller
 
 ## Mission
+
+**2026-11-14 superseding decisions:** consult
+[the current progress audit](PROGRESS_AUDIT_2026-11-14.md). Use the supplied map
+CSV; do not require JSON or new registration tooling to continue. Player split
+choice locks above 100 ms NFC age until a different UID. Admin AUTO and MANUAL
+bypass tag steering filters, while existing drive-stop checks remain active.
+Future zone admission and evacuation must be reviewed against these decisions;
+the older admin AUTO and reservation wording below is not resolved production
+behavior. M1 is closed, core M2 and coins are operator-tested on the current
+setup, and M3 is the recommended next design milestone.
 Build the **Windows PC game-controller application** for the deTour scaffolding exhibition. The PC coordinates one UR10e robot moving three floorboards among four zones; up to four NFC-localized, line-following toy cars; the single USB HID gamepad tested in E2; a USB-connected BLE modem; and four visitor displays. Implement incrementally against available real hardware, using focused dry-run or synthetic substitutes when necessary.
 
 ## Read in this order

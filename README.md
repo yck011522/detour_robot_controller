@@ -44,7 +44,10 @@ tags clear turn bits. Admin AUTO and MANUAL use direct keyboard commands and
 bypass tag-based steering, including the split lock and ordinary-tag centering.
 Zone reservation remains deferred: player AUTO forces `safeexit` at zone approaches.
 The split HUD shows the effective branch; `NAVIGATION` logs record edge and lock
-changes. Physical split/merge acceptance is pending.
+changes. The operator confirmed intersection behavior and the admin bypass
+work on the current setup. Broader map/car and measured timing coverage remain.
+See the [milestone audit](development_plan/PROGRESS_AUDIT_2026-11-14.md) for status
+and remaining work.
 In `config/game_config.ini`, `[ui] video_wash_alpha`
 controls the gray video wash (0?255, initially 0). Display pacing targets 60 FPS;
 the independent control loop remains 50 Hz.

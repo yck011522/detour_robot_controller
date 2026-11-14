@@ -3,6 +3,14 @@
 **Status:** working requirements baseline, updated 2026-11-09 for PC-owned tag-attribute navigation. This document records intended behavior, including the proposed E16 changes in `E16_FIRMWARE_CHANGES.md`. It is not authorization to modify or flash tested firmware.
 
 ## 1. Purpose and physical system
+
+**2026-11-14 progress/decision addendum:**
+[the milestone audit](PROGRESS_AUDIT_2026-11-14.md) records the current implemented
+subset and superseding user decisions: supplied CSV map, player split lock above
+100 ms NFC age, direct admin steering, and persistent coin scoring. Older
+navigation/admin/JSON statements below must be read with that addendum. Future
+zone admission/evacuation policy remains to be reconciled at M3; this addendum
+does not declare the robot/reservation requirements implemented.
 A Windows PC coordinates a UR10e robot that repeatedly transfers **three identical floorboards among four installation zones (A–D)**; four independent visitor-operated line-following cars on the scaffolding, up to four dedicated FPV displays; the single USB HID gamepad tested in `experiments/e2_gamepad_controller.py` for all player inputs; a USB-serial BLE modem which relays World State to cars and telemetry to the PC; and a screw-based robot gripper commanded through an existing URCap/RS-485 path. Car 1 alone accesses Zones A,B; Car 2 alone accesses Zones C,D. Cars 3 and 4 have no movable-board zones. Each zone may be used by the robot or its designated car, never both at once.
 
 ## 2. System ownership and modules

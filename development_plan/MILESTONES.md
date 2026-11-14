@@ -1,5 +1,15 @@
 # Development milestones and hardware-in-the-loop acceptance gates
 
+**Progress reviewed 2026-11-14:** see
+[the current milestone audit](PROGRESS_AUDIT_2026-11-14.md) for evidence, status,
+remaining work and the proposed implementation order. M1 is closed; core M2
+player navigation and coin scoring are implemented and operator-tested on the
+current setup; much of M6 is implemented. M3/M4 and production robot integration
+remain outstanding. The original build descriptions below are planning history:
+the supplied map is CSV, split choice now locks above 100 ms NFC age, and admin
+AUTO/MANUAL bypass tag steering filters. Reconcile future zone admission,
+evacuation and lock interactions in the M3 design before coding them.
+
 **Approach:** small, working PC-controller increments tested against real devices wherever feasible. A simulation framework is NOT a prerequisite. Allow per-subsystem synthetic inputs and dry-run outputs, integrated into the same production application. Each milestone starts with a short review/plan approved by the user and finishes with reproducible evidence.
 
 ## Hardware already available (at planning time)

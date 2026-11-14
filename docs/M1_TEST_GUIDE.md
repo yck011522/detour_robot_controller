@@ -120,8 +120,10 @@ exit and lock state whenever these change. Merge forcing has no split graphic.
 
 Offline checks cover the choice table, 100/101 ms boundary, age between packets,
 same-UID rereads, new/unknown/no-read UIDs, merge forcing, safe exits, MANUAL
-bypass and stop gates. Physical acceptance remains pending. For a supervised
-Car 1 test:
+bypass and stop gates. On 2026-11-14, the operator reported successful physical
+intersection behavior, then confirmed the revised player-only filter/admin
+bypass works perfectly. No new log filename or timing measurements were supplied;
+broader coverage remains open. Retain the following supervised Car 1 checklist:
 
 1. Use an ordinary split without `reservezone`. While on its approach tag,
    change left/right and confirm the HUD/command follows the table.
