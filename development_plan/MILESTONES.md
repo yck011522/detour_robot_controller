@@ -10,6 +10,14 @@ the supplied map is CSV, split choice now locks above 100 ms NFC age, and admin
 AUTO/MANUAL bypass tag steering filters. Reconcile future zone admission,
 evacuation and lock interactions in the M3 design before coding them.
 
+**Update 2026-11-16:** after the E14 three-plate validation, M3 (tokens, closure
+echo, evacuation), M4 (least-recently-touched scheduler, startup/quit) and the M5
+robot process were implemented and tested with a synthetic robot only; the
+agreed decisions are in [SYSTEM_SPEC section 13](SYSTEM_SPEC.md#13-robot-integration-decisions-2026-11-16).
+Not yet done: any live-robot run (including the doubled joint speeds), protective-stop
+recovery, PC-reboot token reconciliation, car presence changes during a claim,
+and physical acceptance with real cars.
+
 **Approach:** small, working PC-controller increments tested against real devices wherever feasible. A simulation framework is NOT a prerequisite. Allow per-subsystem synthetic inputs and dry-run outputs, integrated into the same production application. Each milestone starts with a short review/plan approved by the user and finishes with reproducible evidence.
 
 ## Hardware already available (at planning time)

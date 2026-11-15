@@ -4,6 +4,13 @@
 
 ## 1. Purpose and physical system
 
+**2026-11-16 robot integration addendum:** the decisions in
+[section 13](#13-robot-integration-decisions-2026-11-16) supersede the older
+text about startup order (robot pose before the board questions), a single HOME
+(there are two: `ac_home` and `bd_home`), robot behavior in admin mode, evacuation
+timers in admin, and the `--robot` implementation. Implemented in
+`game_controller/` (zones, scheduler, transfers, robot/); hardware-unvalidated.
+
 **2026-11-14 progress/decision addendum:**
 [the milestone audit](PROGRESS_AUDIT_2026-11-14.md) records the current implemented
 subset and superseding user decisions: supplied CSV map, player split lock above
@@ -152,3 +159,21 @@ The physical route/tag labeling must support these exits. Admin stop, communicat
 - Tag semantics are agreed in sections 5-7. The user will provide Rhino JSON; defer final serialization, visual metadata, export and registration implementation until that file is reviewed. No graph or firmware map export. A small explicitly synthetic fixture can support unrelated tests without becoming the final schema.
 - Plan 2-3 approach tags per split, sharing the same upcoming-intersection meaning, so one missed tag is tolerated. Repeated approach tags do not release reservations. This is redundancy, not a guarantee for missing every approach tag; validate physical behavior later.
 - Before main tool integration, plan a small screwdriver communication/behavior experiment covering actual commands, direction, stop, status/stall reporting, timeout and cancellation. Keep UR motion dry-run and review bounded live tool operation with the operator before running it. Mechanical attachment success is a separate validation.
+
+## 13. Robot integration decisions (2026-11-16)
+
+Agreed with the operator after the E14 three-plate validation. Implementation is in
+`game_controller/` and was exercised only with synthetic (dry-run) robot events;
+nothing here is validated on the real robot.
+
+- **Process model:** the robot runs in its own spawned process (`game_controller/robot/worker.py`), commanded and observed through queues. Every operation and event carries an operation id. No special handling of a dying robot process until it happens. `--robot off|dry-run|live`; the default `off` never opens a robot or tool connection. The game controller never imports from `experiments/`.
+- **Startup order:** confirm the robot pose first, then the board questions. The robot must be at `ac_home` or `bd_home` within 5 deg per joint (recognition only). Otherwise the operator may hold a key to jog to a home while watching the path (the robot stops when the key is released and the pose is checked again). If the robot cannot be reached or found, the operator chooses: Enter runs without the robot, R retries, Escape quits.
+- **Robot disabled:** the robot closes no zone; cars play on the confirmed static layout. Three or four boards may be placed in zones (the spare may be used) and the gripper is unavailable.
+- **Admin mode:** entering admin pauses the robot at its next waypoint (as E14's P key); leaving resumes it. There is no separate pause key. Admin mode pauses the game, so no car is driven by players and admin driving is unrestricted (operator watches for collisions). Evacuation timers are frozen and evacuation does nothing in admin.
+- **Quit:** Q then Enter lets the robot finish the transfer in progress (the robot is resumed if paused), return home and only then quits, so the application never exits with a board in the gripper (one place to change: `Transfers.tick`/`Transfers.done`). A second Q + Enter, or quitting in a robot fault, quits at once.
+- **Scheduling:** least-recently-touched zone order (initially A, B, C, D), skipping car-held zones, and never the plate just placed — even if nothing else is eligible (the robot waits indefinitely; evacuation eventually frees a zone). The destination is the empty zone other than the source. The order is not persisted. E14's 12-pair queue stays an experiment.
+- **Claims:** a zone is claimed after the robot is at its home; a token held by a car denies it. Closing a zone with a board waits for the zone's car (Car 1: A/B, Car 2: C/D) to echo a snapshot generated after the claim; an absent or telemetry-silent car owes nothing. Tokens are granted before robot claims within a tick. The zone is released at verified high clearance; inventory changes on the pickup/placement release events and are persisted and remapped immediately. A fault keeps claims and blocks the robot until restart.
+- **Evacuation:** after 10 s without forward input or 60 s total holding, the controller pushes forward toward the safe exit (forward only inside a zone) before the normal filtering and branch lock, so a locked branch is never changed. It ends with the normal token release. No bounded-failure timeout yet.
+- **Speeds:** joint moves doubled to 10 deg/s (local) and 20 deg/s (cross-home); compliance, tightening and release unchanged. Unvalidated on the robot.
+- **Coins and minimap:** unchanged.
+- **Deferred:** protective-stop recovery (an admin action that acknowledges the error, enables the robot, releases the brakes and waits for RUNNING), recovery primitives after non-protective faults, and PC-reboot reconciliation of retained tokens.

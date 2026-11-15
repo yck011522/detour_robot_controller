@@ -13,7 +13,12 @@ BOARDS = ("P", "Q", "R", "S")
 LOCATIONS = ("unassigned", "A", "B", "C", "D", "gripper", "spare")
 
 
-def validate_arrangement(arrangement):
+def validate_arrangement(arrangement, robot=True):
+    """With the robot enabled exactly three boards are active and one is spare.
+
+    Without the robot nothing moves, so a fourth board may also sit in a zone
+    (no spare); the gripper is not available.
+    """
     if set(arrangement) != set(BOARDS):
         raise ValueError("Assign all four boards P, Q, R and S.")
     locations = list(arrangement.values())
@@ -21,8 +26,10 @@ def validate_arrangement(arrangement):
         raise ValueError("Assign every board to a zone, gripper or spare.")
     if len(set(locations)) != 4:
         raise ValueError("Two boards cannot occupy the same location.")
-    if locations.count("spare") != 1:
+    if robot and locations.count("spare") != 1:
         raise ValueError("Exactly one board must be spare; three must be active.")
+    if not robot and "gripper" in locations:
+        raise ValueError("Without the robot no board can be in the gripper.")
 
 
 def load_board_state(path):
@@ -31,13 +38,10 @@ def load_board_state(path):
     parser = configparser.ConfigParser(interpolation=None)
     with path.open(encoding="utf-8-sig") as source:
         parser.read_file(source)
-    result = {name: parser.get("boards", name) for name in BOARDS}
-    validate_arrangement(result)
-    return result
+    return {name: parser.get("boards", name) for name in BOARDS}
 
 
 def save_board_state(path, arrangement):
-    validate_arrangement(arrangement)
     parser = configparser.ConfigParser(interpolation=None)
     parser["boards"] = arrangement
     temporary = None
@@ -58,8 +62,9 @@ def save_board_state(path, arrangement):
 class BoardStartup:
     """Main-thread form model; saving runs outside the control loop."""
 
-    def __init__(self, path):
+    def __init__(self, path, robot=True):
         self.path = Path(path)
+        self.robot = robot
         self.draft = load_board_state(self.path)
         self.selected = 0
         self.error = ""
@@ -79,13 +84,17 @@ class BoardStartup:
         if self.future is not None or self.confirmed:
             return
         try:
-            validate_arrangement(self.draft)
+            validate_arrangement(self.draft, self.robot)
         except ValueError as error:
             self.error = str(error)
             return
         self.saved = dict(self.draft)
         self.error = ""
         self.future = self.executor.submit(save_board_state, self.path, self.saved)
+
+    def persist(self, arrangement):
+        """Queue a save after a confirmed pickup/placement; returns the future."""
+        return self.executor.submit(save_board_state, self.path, dict(arrangement))
 
     def poll(self):
         if self.future is None or not self.future.done():
@@ -159,9 +168,9 @@ class TagResolver:
         self.ignored_uids = set()
         self.assign(None)
 
-    def assign(self, arrangement):
+    def assign(self, arrangement, robot=True):
         if arrangement is not None:
-            validate_arrangement(arrangement)
+            validate_arrangement(arrangement, robot)
         zone_boards = {zone.lower(): board.lower() for board, zone in (arrangement or {}).items()
                        if zone in ("A", "B", "C", "D")}
         tags, by_uid, slots = {}, {}, set()

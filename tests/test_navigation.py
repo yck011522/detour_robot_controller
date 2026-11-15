@@ -86,8 +86,8 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(nav.steering(True, False, 0), safeexit)
             self.assertEqual(nav.steering(False, True, 1), safeexit)
 
-    def test_board_present_allows_normal_choice_and_gripper_does_not(self):
-        nav = Navigation(board_zones=frozenset(("A", "B", "D")))
+    def test_token_allows_normal_choice_and_other_zones_do_not(self):
+        nav = Navigation(granted_zone="A")
         nav.observe("approach-A", 0, 0,
                     approach("right", reservezone="A", safeexit="left"))
         self.assertEqual(nav.steering(False, True, 0), "right")
@@ -96,18 +96,31 @@ class NavigationTests(unittest.TestCase):
                     approach("right", reservezone="C", safeexit="left"))
         self.assertEqual(nav.steering(False, True, .03), "left")
 
-    def test_board_presence_changes_cannot_redirect_locked_choice(self):
+    def test_token_changes_cannot_redirect_locked_choice(self):
         nav = Navigation()
         nav.observe("approach", 0, 0, approach(reservezone="A", safeexit="left"))
         self.assertEqual(nav.steering(False, True, 0), "left")
         nav.steering(False, True, .101)
-        nav.board_zones = frozenset(("A",))
+        nav.granted_zone = "A"
         self.assertEqual(nav.steering(False, True, .12), "left")
         nav.observe("next-approach", 0, .13, approach(reservezone="A", safeexit="left"))
         self.assertEqual(nav.steering(False, True, .13), "right")
         nav.steering(True, False, .24)
-        nav.board_zones = frozenset()
+        nav.granted_zone = ""
         self.assertEqual(nav.steering(True, False, .25), "right")
+
+    def test_late_grant_while_waiting_unlocks_the_choice_and_exit_input_selects_safeexit(self):
+        nav = Navigation()
+        nav.observe("approach", 0, 0, approach("right", reservezone="A", safeexit="left"))
+        self.assertEqual(nav.steering(False, True, 0), "left")  # Denied: safeexit.
+        nav.granted_zone = "A"
+        self.assertEqual(nav.steering(False, True, .02), "right")
+        for split in ("left", "right", "leftright"):
+            for safeexit in ("left", "right"):
+                nav = Navigation()
+                nav.observe("approach", 0, 0, approach(split, reservezone="A", safeexit=safeexit))
+                nav.granted_zone = "A"
+                self.assertEqual(nav.steering(*nav.exit_input(), 0), safeexit)
 
     def test_merge_forces_edge_and_ordinary_road_clears_turns(self):
         for edge in ("left", "right"):

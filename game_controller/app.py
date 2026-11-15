@@ -1,7 +1,8 @@
-"""M1 controller main thread: HID + admin intent + World State tick at 50 Hz.
+"""Game controller main thread: HID + admin intent + World State tick at 50 Hz.
 
-This diagnostic application never imports UR RTDE or opens a UR/tool socket.
-Zone entry checks confirmed board presence; robot reservations remain deferred.
+With --robot live|dry-run the robot runs in its own process and moves the three
+boards around; zone tokens, the closure echo and evacuation live here. Without
+it (the default) no robot or tool connection is ever opened and boards stay put.
 """
 
 import argparse
@@ -27,6 +28,10 @@ from .minimap import ASSET_DIRECTORY, load_tag_attributes
 from .minimap_cache import ensure_minimap_cache
 from .navigation import validate_tags
 from .boards import BoardStartup, TagResolver, ask_boards_console
+from .robot import worker as robot_worker
+from .scheduler import Scheduler
+from .transfers import Transfers
+from .zones import CAR_ZONES, Zones
 
 
 class Log:
@@ -135,7 +140,7 @@ def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
     }
 
 
-def observe_location(car, packet, now, resolver, coins, car_tags):
+def observe_location(car, packet, now, resolver, coins, car_tags, zones=None):
     """One accepted UID interpretation for navigation, marker and coin scoring."""
     match = resolver.lookup(car.uid)
     if match.kind == "ignored":
@@ -143,7 +148,12 @@ def observe_location(car, packet, now, resolver, coins, car_tags):
         return match, None  # No context transition, marker move or coin visit.
     if match.kind == "mapped":
         car_tags[packet.car - 1] = match.tid
-    car.navigation.observe(car.uid, packet.nfc_age_ms, now, resolver.tags.get(match.tid))
+    nav = car.navigation
+    changed = nav.observe(car.uid, packet.nfc_age_ms, now, resolver.tags.get(match.tid))
+    # A distinct tag with neither inzone nor reservezone (including an unknown
+    # UID) releases the zone token. No-read and ignored tags never do.
+    if changed and zones is not None and not nav.inzone and not nav.reservezone:
+        zones.release_token(packet.car)
     return match, coins.observe(packet.car, car.uid, now)
 
 
@@ -152,6 +162,9 @@ def main():
     parser.add_argument("--seconds", type=float, default=0, help="timed run; 0 waits for Q/window close")
     parser.add_argument("--stop-only", action="store_true", help="never emit driving bits, regardless of keyboard/joystick input")
     parser.add_argument("--no-video", action="store_true", help="central diagnostics only; skip camera/display processes")
+    parser.add_argument("--robot", choices=("off", "dry-run", "live"), default="off",
+                        help="off: boards never move (default); dry-run: simulated robot; live: real UR10e, "
+                             "which moves only after the operator confirms the startup questions")
     args = parser.parse_args()
     if not math.isfinite(args.seconds) or args.seconds < 0:
         parser.error("--seconds must be finite and nonnegative")
@@ -165,6 +178,12 @@ def main():
     context = multiprocessing.get_context("spawn")
     stop = context.Event()
     events = context.Queue(maxsize=1024)
+    # The robot runs in its own process; only commands and events cross.
+    robot_process = robot_commands = robot_events = None
+    robot_phase = "detecting" if args.robot != "off" else "disabled"
+    robot_text, robot_home, robot_jog_at = "", None, 0
+    zones, transfers = Zones(), None
+    robot_paused = shutting_down = False
     # Shared display locations are separate from control state.
     last_known_tags = [None] * 4
     cars = [Car(present=i in config["present"]) for i in range(1, 5)]
@@ -194,7 +213,7 @@ def main():
         tag_attributes = load_tag_attributes(ASSET_DIRECTORY)
         validate_tags(tag_attributes)
         resolver = TagResolver(tag_attributes, ROOT / "config/dynamic_nfc.ini")
-        board_startup = BoardStartup(ROOT / "config/board_state.ini")
+        board_startup = BoardStartup(ROOT / "config/board_state.ini", robot=args.robot != "off")
         coin_store = CoinStore(ROOT / "config/coin_count.ini")
         coin_game = CoinGame(resolver.tags, coin_store.totals,
                              silver_points=settings["silver_points"],
@@ -219,10 +238,101 @@ def main():
         modem = Modem(config["port"], stream, settings["command_expiry_s"], settings["modem_retry_s"], log)
         # Hidden SDL event owner for HID only; all visible controls use the four displays.
         screen = pygame.display.set_mode((1, 1), pygame.HIDDEN)
+
+        def start_robot():
+            nonlocal robot_process, robot_commands, robot_events, robot_phase
+            robot_commands, robot_events = context.Queue(), context.Queue()
+            robot_process = context.Process(target=robot_worker.run, args=(robot_commands, robot_events, args.robot),
+                                            name="robot", daemon=True)
+            robot_process.start()
+            robot_commands.put(("detect",))
+            robot_phase = "detecting"
+            log("ROBOT_STARTED", mode=args.robot)
+
+        def redetect():
+            nonlocal robot_phase
+            if robot_process.is_alive():
+                robot_commands.put(("detect",))
+                robot_phase = "detecting"
+            else:
+                start_robot()
+
+        def disable_robot():
+            nonlocal robot_phase
+            if robot_process.is_alive():
+                robot_commands.put(("stop",))
+            board_startup.robot = False
+            robot_phase = "disabled"
+            log("ROBOT_DISABLED")
+
+        def on_robot_event(event):
+            nonlocal robot_phase, robot_text, robot_home
+            name = event[0]
+            if name == "detected":
+                robot_home, robot_text = event[1], event[2]
+                robot_phase = "ready" if robot_home else "away"
+                log("ROBOT_DETECTED", home=robot_home, text=robot_text)
+            elif name == "unavailable":
+                robot_text, robot_phase = event[1], "unavailable"
+                log("ROBOT_UNAVAILABLE", reason=robot_text)
+            elif name == "jog_ended":
+                redetect()
+            elif transfers is not None:
+                transfers.handle(event)
+
+        def drain_robot_events():
+            if robot_events is None:
+                return
+            try:
+                while True:
+                    on_robot_event(robot_events.get_nowait())
+            except queue.Empty:
+                pass
+
+        def on_inventory(arrangement):
+            resolver.assign(arrangement)
+            saved = board_startup.persist(arrangement)
+            saved.add_done_callback(lambda done: done.exception() and
+                                    log("BOARD_STATE_SAVE_FAILED", error=str(done.exception())))
+
+        def acknowledged(zone, since):
+            """Closure receipt: the zone's car echoed a snapshot generated after the claim.
+
+            An absent or telemetry-silent car owes no echo (the agreed last-known-state exception).
+            """
+            car = cars[CAR_ZONES[zone] - 1]
+            now = time.perf_counter()
+            if not car.present or not car.feedback_ok(now, settings["telemetry_stale_s"]):
+                return True
+            return car.echo_ok(now, settings["echo_stale_s"]) and car.echo_generated >= since
+
+        def robot_prompt():
+            if robot_phase == "detecting":
+                return ["Checking the robot position...", robot_text]
+            if robot_phase == "jogging":
+                return ["Moving the robot. Keep holding the key; release it to stop.", robot_text]
+            footer = "R: check again   Enter: run without the robot   Escape: quit"
+            if robot_phase == "unavailable":
+                return ["Robot unavailable", robot_text, footer]
+            return ["The robot is not at a home position", robot_text,
+                    "Hold LEFT: move to AC home   Hold RIGHT: move to BD home",
+                    "Watch the path yourself and release the key to stop.", footer]
+
+        if args.robot != "off":
+            start_robot()
         if args.no_video:
             # No visible windows in this diagnostic mode; no driving commands
             # have been submitted while its console questionnaire is open.
-            ask_boards_console(board_startup)
+            if args.robot != "off":
+                deadline = time.perf_counter() + 60
+                while robot_phase in ("detecting", "jogging") and time.perf_counter() < deadline:
+                    drain_robot_events()
+                    time.sleep(.05)
+                if robot_phase not in ("ready", "disabled"):
+                    # The keyboard startup prompt in the main loop still applies.
+                    print(f"Robot is not ready ({robot_text}); answer with R / Enter / Escape.", flush=True)
+            if robot_phase in ("ready", "disabled"):
+                ask_boards_console(board_startup)
         if not args.no_video:
             from .monitors import resolve_serials
             indexes = resolve_serials([serial for _, _, serial in config["cameras"]])
@@ -233,7 +343,7 @@ def main():
                 player.start()
                 players.append(player)
                 channels.append(channel)
-        log("CONFIG", profile="M1 bench; UR/tool inactive", port=config["port"], settings=settings,
+        log("CONFIG", profile=f"robot={args.robot}", port=config["port"], settings=settings,
             cameras=config["cameras"], buttons=config["buttons"], present=sorted(config["present"]),
             bindings=config["bindings"], stop_only=args.stop_only, log_path=str(log.path))
         next_tick = next_ui = next_metrics = time.perf_counter()
@@ -241,16 +351,35 @@ def main():
         logged_exits = set()
 
         def key_action(key):
-            nonlocal admin, selected, quitting, keyboard, keyboard_at, quit_pending
+            nonlocal admin, selected, quitting, keyboard, keyboard_at, quit_pending, shutting_down
             nonlocal capture_menu, capture_car, capture_ui, capture_request, capture_status
             if quit_pending:
                 if key == keys["accept"]:
-                    quitting = True
-                    log("QUIT_CONFIRMED")
+                    quit_pending = False
+                    if transfers is None or transfers.state == "fault" or shutting_down:
+                        quitting = True  # Nothing to home, a blocked robot, or a second explicit confirmation.
+                        log("QUIT_CONFIRMED")
+                    else:
+                        shutting_down, transfers.finishing = True, True
+                        log("QUIT_WAITING_FOR_ROBOT", state=transfers.state)
                 elif key == keys["cancel"]:
                     quit_pending = False
                     keyboard, keyboard_at = (False,) * 5, 0
                     log("QUIT_CANCELLED")
+                return
+            if robot_phase not in ("ready", "disabled"):
+                if key == keys["quit"]:
+                    quit_pending = True
+                elif key == keys["cancel"]:
+                    quitting = True
+                elif key == keys["retry"]:
+                    redetect()
+                elif key == keys["accept"] and robot_phase in ("unavailable", "away"):
+                    disable_robot()
+                return
+            if shutting_down and key == keys["cancel"]:
+                shutting_down, transfers.finishing = False, False
+                log("QUIT_CANCELLED")
                 return
             if not board_startup.confirmed:
                 keyboard, keyboard_at = (False,) * 5, 0
@@ -392,14 +521,22 @@ def main():
                         log("DISPLAY_FAILED", car=car, error=values[0])
             except queue.Empty:
                 pass
+            drain_robot_events()
             if board_startup.poll():
-                resolver.assign(board_startup.saved)
-                for car in cars:
-                    car.navigation.board_zones = resolver.board_zones
+                robot_enabled = board_startup.robot
+                resolver.assign(board_startup.saved, robot_enabled)
+                zones.boards = set(resolver.board_zones)
+                if robot_enabled:
+                    transfers = Transfers(zones, Scheduler(), board_startup.saved, robot_home,
+                                          robot_commands.put, log, on_inventory)
                 keyboard, keyboard_at = (False,) * 5, 0
                 log("BOARDS_CONFIRMED", arrangement=board_startup.saved,
                     path=str(board_startup.path), bindings=resolver.by_uid,
-                    ignored_uids=sorted(resolver.ignored_uids))
+                    ignored_uids=sorted(resolver.ignored_uids), robot=robot_enabled)
+            if robot_phase in ("away", "jogging") and tick_start >= robot_jog_at and (keyboard[1] or keyboard[2]):
+                robot_commands.put(("jog", "ac_home" if keyboard[1] else "bd_home"))
+                robot_jog_at = tick_start + .1
+                robot_phase = "jogging"
             received, sent, model = modem.drain()
             if model["session"] != session:
                 session = model["session"]
@@ -419,7 +556,7 @@ def main():
                 result = car.accept(packet, received_at, received_session, history, settings["telemetry_stale_s"])
                 if result not in ("duplicate", "stale") and board_startup.confirmed:
                     match, award = observe_location(car, packet, received_at, resolver,
-                                                    coin_game, last_known_tags)
+                                                    coin_game, last_known_tags, zones)
                     if match.kind == "ignored" and result == "uid":
                         log("NFC_IGNORED", car=packet.car, uid=car.uid,
                             reason="known board tag without a slot in the confirmed layout")
@@ -439,24 +576,59 @@ def main():
                 raise RuntimeError(f"Could not save coin totals: {coin_store.error}")
             if tick_start - keyboard_at > settings["keyboard_stale_s"]:
                 keyboard = (False,) * 5
+            if board_startup.confirmed:
+                # Order: token grants first, then the robot's claim, so a car and the
+                # robot never both win the same zone within one tick.
+                for index, car in enumerate(cars):
+                    nav = car.navigation
+                    if nav.reservezone and not nav.inzone:
+                        zones.request_token(index + 1, nav.reservezone)
+                    nav.granted_zone = zones.token_zone(index + 1)
+                    if not admin:
+                        zones.advance(index + 1, raw_buttons[config["buttons"][index][0]],
+                                      1 / settings["control_hz"])
+                if transfers:
+                    # Admin pauses the robot at its next waypoint; a quit lets it finish and go home.
+                    pause = admin and not transfers.finishing
+                    if pause != robot_paused:
+                        robot_commands.put(("pause", pause))
+                        robot_paused = pause
+                    zones.settle(acknowledged)
+                    transfers.tick(time.perf_counter(), not pause)
+                    if shutting_down and transfers.done:
+                        quitting = True
+                        log("QUIT_ROBOT_HOME", home=transfers.home)
             # Presence hides markers on every screen, without discarding their locations.
             visible_tags = tuple(tag if car.present else None
                                  for tag, car in zip(last_known_tags, cars))
+            robot_status = (transfers.status() if transfers else
+                            "Robot: " + ("disabled" if robot_phase == "disabled" else robot_text))
+            if shutting_down:
+                robot_status = "QUITTING: waiting for the robot to finish and reach home. " + robot_status
+            startup_snapshot = board_startup.snapshot()
+            startup_snapshot["robot"] = None if robot_phase in ("ready", "disabled") else robot_prompt()
             commands, states = [], []
             for index, car in enumerate(cars):
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
-                command = car.command(raw, tick_start, settings["telemetry_stale_s"], settings["echo_stale_s"],
+                drive = raw
+                nav = car.navigation
+                if not admin and zones.evacuating(index + 1):
+                    # As if the visitor pushed forward toward the safe exit; the normal
+                    # filter and branch lock still apply afterwards.
+                    left, right = nav.exit_input() if nav.reservezone and not nav.inzone else (False, False)
+                    drive = (1, int(left), int(right))
+                command = car.command(drive, tick_start, settings["telemetry_stale_s"], settings["echo_stale_s"],
                                       model["connected"], joystick is not None, admin, selected, index + 1,
                                       keyboard, args.stop_only or quitting or quit_pending or capture_menu
-                                      or not board_startup.confirmed)
+                                      or shutting_down or not board_startup.confirmed)
                 commands.append(command)
-                nav = car.navigation
                 navigation_state = (nav.uid, nav.edge, nav.locked)
                 if navigation_state != navigation_states[index]:
                     log("NAVIGATION", car=index + 1, uid=nav.uid, tid=nav.tid,
                         split=nav.split, mergeedge=nav.mergeedge, edge=nav.edge,
                         selected_exit=nav.selected_exit, locked=nav.locked,
-                        zone_safeexit=bool(nav.reservezone and nav.reservezone not in nav.board_zones))
+                        zone_token=nav.granted_zone, evacuating=zones.evacuating(index + 1),
+                        zone_safeexit=bool(nav.reservezone and nav.reservezone != nav.granted_zone))
                     navigation_states[index] = navigation_state
                 packet = car.packet
                 states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
@@ -470,8 +642,8 @@ def main():
                                "capture_menu": capture_menu, "capture_car": capture_car,
                                "capture_ui": capture_ui, "capture_request": capture_request,
                                "capture_status": capture_status,
-                               "board_startup": board_startup.snapshot(),
-                               "global_status": f"Modem {config['port']}: {'connected' if model['connected'] else 'reconnecting'} | Gamepad: {'connected' if joystick else 'missing'}",
+                               "board_startup": startup_snapshot, "shutting_down": shutting_down,
+                               "global_status": f"Modem {config['port']}: {'connected' if model['connected'] else 'reconnecting'} | Gamepad: {'connected' if joystick else 'missing'} | {robot_status}",
                                "global_counts": f"World States: {generated_total} | Skipped ticks: {skipped} | Invalid lines: {model['invalid_lines']}",
                                "feedback": f"Fresh ({tick_start-car.received:.2f}s)" if car.feedback_ok(tick_start, settings["telemetry_stale_s"]) else "Missing / stale",
                                "echo": f"Fresh ({car.echo_age*1000:.0f} ms estimate)" if car.echo_ok(tick_start, settings["echo_stale_s"]) else "Waiting / stale",
@@ -480,8 +652,7 @@ def main():
                                "uid": car.uid or "No tag yet", "tag_age": f"{packet.nfc_age_ms} ms" if packet else "--",
                                "sensors": f"Line: {packet.sensors:08b}" if packet else "",
                                "command": f"0x{command:02X}", "reason": car.last_reason, "warning": car.warning()})
-            topology = 16 if admin else 0  # No zone availability asserted in M1.
-            modem.submit(sequence, topology, commands)
+            modem.submit(sequence, zones.mask(admin), commands)
             generated_total += 1
             sequence = (sequence + 1) & 65535
             if commands != last_commands:
@@ -528,12 +699,12 @@ def main():
                 pass
     finally:
         if modem:
-            # Diagnostic profile has no robot ownership, so no HOME wait is
-            # claimed. Attempt stop-only snapshots and observe reported wheels.
+            # Stop-only snapshots; observe reported wheels. Robot homing already
+            # completed (or was explicitly abandoned) before the loop ended.
             stop_sent_generation = time.perf_counter()
             until = stop_sent_generation + settings["shutdown_stop_s"]
             while time.perf_counter() < until:
-                modem.submit(sequence, 16 if admin else 0, [AUTO_STOP] * 4)
+                modem.submit(sequence, zones.mask(admin), [AUTO_STOP] * 4)
                 sequence = (sequence + 1) & 65535
                 received, sent, state = modem.drain()
                 for sent_at, sent_session, number, generated, commands in sent:
@@ -551,6 +722,14 @@ def main():
                 outcome = "FAIL"
             modem.close()
         stop.set()
+        if robot_process is not None:
+            robot_commands.put(("stop",))
+            robot_process.join(timeout=5)
+            if robot_process.is_alive():
+                log("ROBOT_PROCESS_TERMINATED", state=transfers.state if transfers else robot_phase)
+                robot_process.terminate()
+            robot_commands.cancel_join_thread()
+            robot_events.cancel_join_thread()
         for player in players:
             player.join(timeout=14)  # Allow encoder flush plus camera cleanup.
             if player.is_alive():
@@ -571,7 +750,7 @@ def main():
                 log("COIN_SAVE_FAILED", error=str(error))
                 outcome = "FAIL"
         log("RESULT", outcome=outcome, generated=generated_total, skipped_ticks=skipped,
-            profile="M1 bench; UR/tool untouched", stop_only=args.stop_only)
+            profile=f"robot={args.robot}", stop_only=args.stop_only)
         log.close()
         print(f"{outcome}: {log.path}", flush=True)
     return int(outcome == "FAIL")

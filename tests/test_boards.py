@@ -30,7 +30,7 @@ class BoardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             config["log_directory"] = Path(directory)
             config["settings"]["shutdown_stop_s"] = .001
-            startup = BoardStartup(Path(directory) / "board_state.ini")
+            startup = BoardStartup(Path(directory) / "board_state.ini", robot=False)
             calls = []
             frames = 0
 
@@ -47,7 +47,7 @@ class BoardTests(unittest.TestCase):
             def command(car, *args):
                 calls.append((args[6], args[-1]))  # admin, stop-only gate
                 if startup.confirmed:
-                    self.assertEqual(car.navigation.board_zones, frozenset(("A", "B", "C")))
+                    self.assertEqual(car.navigation.granted_zone, "")  # No car is at an approach tag.
                 return 1
 
             stack.enter_context(patch.object(app, "load", return_value=config))
