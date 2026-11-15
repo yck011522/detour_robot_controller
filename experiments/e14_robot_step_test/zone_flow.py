@@ -37,7 +37,7 @@ def build_steps(operation, zone, from_target=False):
     return steps
 
 
-def check_start(expected_pose, expected_payload, settings):
+def check_start(expected_pose, expected_payload, settings, home_tolerance_deg=None):
     """Recognize the starting endpoint; do not infer a route from arbitrary poses."""
     import step_test
     from rtde_receive import RTDEReceiveInterface
@@ -54,7 +54,8 @@ def check_start(expected_pose, expected_payload, settings):
             raise RuntimeError("Starting robot mode/safety is not NORMAL/RUNNING")
         error = step_test.settled_matches(state["joints"], {expected_pose: target})[expected_pose]
         joint = settings["joint_motion"]
-        if error > joint["arrival_tolerance_deg"] or max(map(abs, state["joint_velocity"])) > joint["stationary_velocity_rad_s"]:
+        tolerance = joint["arrival_tolerance_deg"] if home_tolerance_deg is None else home_tolerance_deg
+        if error > tolerance or max(map(abs, state["joint_velocity"])) > joint["stationary_velocity_rad_s"]:
             raise RuntimeError(f"Start requires stationary {expected_pose}; maximum error {error:.3f} deg")
         # Only compare configured properties; this does not verify physical attachment.
         mass = receiver.getPayload()
@@ -79,11 +80,13 @@ def validate_steps(steps):
             raise ValueError(f"Missing taught pose: {name}")
 
 
-def run_steps(steps, config_path, settings, transcript):
+def run_steps(steps, config_path, settings, transcript, on_step=None, isolate_signals=False):
     """A failed child, including cleanup failure, prevents all subsequent steps."""
     with transcript.open("w", encoding="utf-8") as output:
         output.write(f"CONFIG {config_path}\nSETTINGS {settings}\n")
         for index, (label, arguments) in enumerate(steps):
+            if on_step:
+                on_step("started", index, label, arguments, None)
             message = f"STEP {index+1}/{len(steps)}: {label}"
             print(message, flush=True)
             output.write(message + "\n")
@@ -92,7 +95,10 @@ def run_steps(steps, config_path, settings, transcript):
                 [sys.executable, str(HERE / "step_test.py"), *arguments,
                  "--config", str(config_path), "--live"],
                 input="RUN\n", text=True, stdout=output, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if isolate_signals else 0,
             )
+            if on_step:
+                on_step("finished", index, label, arguments, child.returncode)
             if child.returncode:
                 print(f"STOPPED: {label} incomplete; inspect {transcript}", flush=True)
                 return child.returncode

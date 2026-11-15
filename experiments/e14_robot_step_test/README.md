@@ -1,11 +1,25 @@
 # E14: supervised robot operation tests
 
-Temporary hardware experiments, separate from the game controller. B/D placement
-and pickup were physically confirmed on 2026-11-15 before this refactor. The
-second cleanup has offline verification only. Before this cleanup, B/D/A pickup
-and placement, C placement, loaded BD->AC at 5 deg/s and empty AC->BD at 10 deg/s
-were confirmed. C pickup, loaded transfers at 10 deg/s, and B/D placement with
-the newer 5 N M1 release remain untested. No game board inventory is changed.
+Supervised hardware experiments, separate from the game controller. A-D pickup
+and placement and both directed home routes were exercised on 2026-11-15.
+The three-plate session completed nine transfers and 162 actions, including
+pause/resume and controlled quit. See [the validation note](VALIDATION_2026-11-15.md)
+for coverage, numerical results and the 24-second B tightening outlier.
+The commit-preparation cleanup has offline verification only. No game board
+inventory, car firmware or reservation-manager behavior is changed.
+
+| Entry point | Purpose |
+|---|---|
+| `step_test.py` | Read-only state or one supervised action |
+| `zone_flow.py` | Approach, pickup or placement in A-D |
+| `home_travel.py` | Directed travel between homes |
+| `queue_cli.py` | Three-plate transfer queue with pause and controlled quit |
+| `plot_test.py` | One action's PNG and CSV |
+| `analyze_session.py` | Session audit, numerical CSV/JSON and overview PNG |
+
+Use the root `requirements.txt` for runtime dependencies. Plot generation alone
+also needs the optional `requirements-analysis.txt` in this folder. Offline
+control/queue tests do not require matplotlib or any hardware connection.
 
 ## Shared settings
 
@@ -100,11 +114,11 @@ so there is additional preparation time beyond that dwell. Blending is not used.
 bd_ac_1..5 to ac_home. The reverse direction uses `ac-to-bd` and the distinct
 ac_bd_1..5 route. Add `--live` for supervised execution and type RUN. Starting
 home/payload checks and the shared step runner are reused. Each waypoint is a
-stopped MoveJ using [cross_home] speed (10 deg/s for the next test) and per-leg
+stopped MoveJ using [cross_home] speed (10 deg/s commanded) and per-leg
 timeout (120 s). Acceleration, settling and dwell remain from [joint_motion].
-Local zone moves continue at their separate 5 deg/s setting. Empty AC->BD was
-verified at 10 deg/s; loaded BD->AC was verified at 5 deg/s. Loaded 10 deg/s
-transfers remain to be tested. The runner passes a cross_home profile rather
+Local zone moves continue at their separate 5 deg/s setting. Both directed
+routes, including loaded travel, were exercised with the 10 deg/s command
+during queue testing. The runner passes a cross_home profile rather
 than copying speed/timeout numbers into its command list.
 Payload stays unchanged. No automatic shortcut or reversal is inferred.
 
@@ -117,24 +131,93 @@ m2_free_spin.py is the earlier no-load motor diagnostic, not an engaged operatio
 
 Per-action JSON-line logs and flow transcripts are written under results/.
 Logs distinguish target-height completion from minimum-height acceptance at
-release timeout. No board identity or attachment state is inferred or persisted.
+release timeout. Single-action/zone tests do not update game board inventory;
+queue sessions persist their own software inventory, operator-confirmed at startup.
 
 ```powershell
 .\.venv\Scripts\python.exe experiments/e14_robot_step_test/plot_test.py PATH_TO_LOG
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/analyze_session.py PATH_TO_SESSION
+# JSON/CSV-only review does not need matplotlib.
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/analyze_session.py PATH_TO_SESSION --no-plot
 .\.venv\Scripts\python.exe -m unittest discover -s experiments/e14_robot_step_test -p 'test_*.py' -v
 ```
 
 Plots are PNG only, with a CSV export. Forces retain the raw base-frame external
 reaction sign; commanded force is separately labeled. TCP/force samples remain
 approximately 5 Hz, while motor replies are recorded more frequently.
+New files under `results/` are ignored by Git and retained locally, including
+checkpoints, input snapshots, latest-session pointers and generated reports.
+Previously committed evidence remains tracked. Commit concise findings in the
+validation note rather than adding new copies of machine/session state.
 
-## Next phase: three-floor queue CLI (not implemented)
+## Three-plate transfer queue CLI
 
-The next reliability test should use three active floors and the agreed queue
-policy, display selection/eligibility/phase decisions in a CLI, and run until
-the operator requests a controlled stop. That stop should finish the active
-operation and return to either home, with or without a floor, before exiting.
-It must be distinct from an immediate fault/abort stop. No repeat runner,
-scheduler, queue UI, or controlled-stop loop is implemented in this cleanup.
-The last confirmed physical arrangement is empty tool at bd_home, one test
-floor in C; operator setup of the three-floor layout will be needed later.
+`queue_cli.py` implements the experimental 12-directed-transfer coverage queue,
+separate from production scheduling and car-zone reservations. Initial layout
+is operator-confirmed through three plate-location questions. Offline preview
+defaults to A/B/C occupied, D empty. Live startup detects ac_home or bd_home from fresh stationary
+joint feedback using [queue_test].startup_home_tolerance_deg = 5 degrees per
+joint, after the configured 0.2-second settle. It rejects no match or an ambiguous
+match; it does not move/snap the robot. Normal move arrival tolerance remains
+2 degrees. The first operation accepts the startup recognition tolerance;
+later home checks use normal arrival tolerance.
+
+Every live startup asks for the locations of all three plates (A/B/C/D or G for
+gripper). --occupied provides visible prefills only. Saved --resume locations
+must be physically confirmed again; a changed layout needs a fresh session.
+A fresh held-plate start asks for its known pickup source and retains a pending
+placement into the other empty slot. Initial plate_1/2/3 labels identify test plates by starting location,
+not registered production board identities. All plates must match the calibrated
+loaded payload. Keep cars outside the robot work area; this test has no tokens.
+
+```powershell
+# Offline preview of queue and first selection; no hardware connection.
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py
+
+# Live CLI: confirm physical layout and type RUN locally.
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live
+
+# Optional bounded acceptance run (default is unlimited until controlled stop).
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live --max-transfers 1
+
+# Resume only from a controlled home stop, after confirming physical state again.
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live --resume PATH_TO_STATE_JSON
+```
+
+P toggles the admin-like pause flag. The active sub-step finishes normally;
+progression then waits before starting another sub-step. P again clears the
+flag; toggling it off before the active step ends cancels the pending pause.
+Motor-plus-compliance actions remain indivisible and end with tool/motion stop
+and force-mode exit before pausing. No payload/tare change is introduced by a
+pause. A paused process retains its operation, inventory and pending transfer;
+it does not exit or automatically restart from another phase. The log records
+PAUSED and PAUSE_ENDED. The UI reports PAUSE REQUESTED until the boundary is reached.
+
+Q or Ctrl+C requests a controlled quit. The active pickup/place or
+directed cross-home route finishes and returns to its associated home before
+stopping. Quit overrides the pause flag: if paused away from home, the remaining
+operation/retreat proceeds to home and then exits. If already paused at home,
+quit exits without starting another operation. A pickup stop leaves the plate held and the transfer pending; a
+placement stop leaves the tool empty and commits the completed transfer. A stop
+during cross-home travel finishes that route without starting another pickup or
+placement. Child processes are isolated from the console interrupt so Ctrl+C
+requests a normal stop rather than interrupting the active child action.
+For immediate equipment protection use the independent hardware stops; faults
+still halt the operation and do not automatically retreat or resume.
+
+Alternatively create a file named STOP inside the current session directory.
+`results/latest_queue_session.txt` points to that directory. The CLI shows the
+layout, gripper, queue, skipped entries, selected transfer, action progress and
+completion counts. It does not retry failures. The queue entry moves to the back
+only after placement and verified return home. An inventory transition is logged
+after successful release, so a subsequent retreat fault retains that information.
+
+Each session stores events.jsonl, state.json, transfers.csv and per-operation
+transcripts referring to the usual action logs. Movement settings are copied
+for the session; pose, payload, address and movement inputs are copied and
+fingerprinted. Changing those inputs during a run blocks subsequent steps.
+Fault/interrupted state files cannot be resumed automatically; reconcile the
+physical mechanisms first. Controlled home stops can resume the held plate's
+pending destination without selecting a new transfer. The production
+config/board_state.ini is never changed. --confirmed skips only the final RUN
+prompt; it does not bypass home detection or the three location questions.

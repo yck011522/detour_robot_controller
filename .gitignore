@@ -224,3 +224,7 @@ __marimo__/
 
 # Rebuildable shared minimap sprites; original map artwork remains tracked.
 /asset/cache/
+
+# Local robot test sessions, state checkpoints and generated plots/reports.
+# Previously committed experiment evidence remains tracked.
+/experiments/e14_robot_step_test/results/

@@ -1,5 +1,14 @@
 # Detour robot controller
 
+## Supervised robot movement and queue tests
+
+The [E14 test guide](experiments/e14_robot_step_test/README.md) covers individual
+actions, A-D pickup/place, directed home travel, and the three-plate queue CLI.
+Movement settings are in `config/robot_movement.ini`. Preview commands do not
+connect to hardware; live operation requires explicit operator confirmation.
+These experiments are separate from the game controller and do not acquire
+car-zone tokens. See the [2026-11-15 validation](experiments/e14_robot_step_test/VALIDATION_2026-11-15.md).
+
 ## Robot pose teaching
 
 ```powershell
