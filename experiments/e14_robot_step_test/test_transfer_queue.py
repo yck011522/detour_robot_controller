@@ -223,9 +223,43 @@ class QueueTest(unittest.TestCase):
             self.assertEqual(sum(q.counts.values()), 0)
 
     def test_preview_does_not_open_hardware(self):
-        with patch("builtins.print"), patch.object(queue_cli, "check_start") as check:
-            self.assertEqual(queue_cli.main([]), 0)
+        with patch("builtins.print"), patch.object(queue_cli, "check_start") as check, \
+             patch.object(queue_cli, "prepare_robot") as prepare:
+            self.assertEqual(queue_cli.main(["--preview"]), 0)
             check.assert_not_called()
+            prepare.assert_not_called()
+
+    def test_live_default_prepares_robot_before_detecting_home(self):
+        calls = []
+        with patch("builtins.print"), \
+             patch.object(queue_cli, "prepare_robot", side_effect=lambda: calls.append("prepare")), \
+             patch.object(queue_cli, "engage_brakes", side_effect=lambda: calls.append("brakes")), \
+             patch.object(queue_cli, "detect_home", side_effect=lambda *a: calls.append("detect") or "bd_home"), \
+             patch.object(queue_cli, "ask_plate_layout", return_value=None):
+            self.assertEqual(queue_cli.main([]), 1)
+        self.assertEqual(calls, ["prepare", "detect", "brakes"])
+
+    def test_brakes_engaged_after_fault_or_interrupted_startup(self):
+        for startup_fault in (False, True):
+            with patch.object(queue_cli, "prepare_robot", side_effect=KeyboardInterrupt if startup_fault else None), \
+                 patch.object(queue_cli, "engage_brakes") as brakes:
+                with self.assertRaises(KeyboardInterrupt):
+                    with queue_cli.robot_power():
+                        raise KeyboardInterrupt()
+                brakes.assert_called_once_with()
+
+    def test_brake_cleanup_powers_off_arm_without_controller_shutdown(self):
+        import step_test
+        from unittest.mock import Mock
+        protocol = step_test.tool_protocol
+        client = Mock()
+        with patch("builtins.print"), patch.object(protocol, "Log"), \
+             patch.object(protocol, "dashboard", return_value=client), \
+             patch.object(protocol, "wait_mode") as wait:
+            queue_cli.engage_brakes()
+        self.assertEqual([call.args[0] for call in client.command.call_args_list], ["stop", "power off"])
+        wait.assert_called_once_with(client, "POWER_OFF", 30)
+        client.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

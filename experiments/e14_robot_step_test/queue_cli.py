@@ -2,6 +2,7 @@
 
 import argparse
 import configparser
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
 import hashlib
@@ -80,6 +81,52 @@ def detect_home(settings, tolerance):
         return home
     finally:
         receiver.disconnect()
+
+
+def prepare_robot():
+    """Power on and release brakes using the shared, checked Dashboard sequence."""
+    import step_test
+    protocol = step_test.tool_protocol
+    log = protocol.Log("queue_power")
+    try:
+        client = protocol.dashboard(protocol.host_from_config(), log)
+        try:
+            protocol.prepare_robot(client)
+        finally:
+            client.close()
+    finally:
+        log.close()
+
+
+def engage_brakes():
+    """Power off only the arm; leave the controller and Dashboard server on."""
+    import step_test
+    protocol = step_test.tool_protocol
+    log = protocol.Log("queue_brakes")
+    try:
+        client = protocol.dashboard(protocol.host_from_config(), log)
+        try:
+            client.command("stop", "Stopped")
+            client.command("power off", "Powering off")
+            protocol.wait_mode(client, "POWER_OFF", 30)
+            print("Arm powered off; brakes engaged. Controller remains on.", flush=True)
+        finally:
+            client.close()
+    finally:
+        log.close()
+
+
+@contextmanager
+def robot_power():
+    try:
+        prepare_robot()
+        yield
+    finally:
+        try:
+            engage_brakes()
+        except BaseException:
+            print("EXIT CLEANUP FAILED: arm power-off/brake engagement is unconfirmed. Check the pendant.", flush=True)
+            raise
 
 
 def ask_plate_layout(home, order, seed=None, resume=False):
@@ -343,7 +390,10 @@ def main(argv=None):
                         help="preview-only home; live startup always autodetects")
     parser.add_argument("--resume", type=Path, help="state.json from a controlled home stop")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--live", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--live", dest="live", action="store_true", help="execute on hardware (default)")
+    mode.add_argument("--preview", dest="live", action="store_false", help="preview without hardware connections")
+    parser.set_defaults(live=True)
     parser.add_argument("--confirmed", action="store_true", help="skip final RUN prompt only; location questions still apply")
     parser.add_argument("--max-transfers", type=int, default=0, help="optional acceptance-test bound; 0 runs until stopped")
     args = parser.parse_args(argv)
@@ -365,35 +415,36 @@ def main(argv=None):
     if not args.live:
         model = seed
         print("Preview layout (not physically confirmed):", asdict(model))
-        print("PREVIEW ONLY: no hardware connections. Use --live for supervised execution.")
+        print("PREVIEW ONLY: no hardware connections. Omit --preview for supervised execution.")
         if not model.pending:
             pair, skipped = model.choose()
             print("First eligible transfer:", pair, "Skipped:", skipped)
         return 0
     tolerance = read_home_tolerance(args.config)
-    home = detect_home(settings, tolerance)
-    model = ask_plate_layout(home, order, seed if args.occupied or args.resume else None, resume=bool(args.resume))
-    if model is None:
-        return 1
-    print("Confirmed layout:", asdict(model))
-    if not args.confirmed and input("Confirm physical layout, payload, home, clear routes; type RUN: ").strip() != "RUN":
-        return 1
-    check_start(model.home, "tool_with_floor" if model.held else "tool_only", settings, home_tolerance_deg=tolerance)
-    directory = HERE / "results" / f"{datetime.now():%Y%m%d_%H%M%S_%f}_queue"
-    session = Session(model, settings, args.config.resolve(), directory, startup_tolerance=tolerance)
-    (directory / "transfers.csv").write_text("time,source,destination,plate\n", encoding="utf-8")
-    latest = HERE / "results/latest_queue_session.txt"
-    latest.write_text(str(directory.resolve()), encoding="utf-8")
-    controls = Controls(directory / "STOP", interval)
-    old_handler = signal.signal(signal.SIGINT, lambda signum, frame: controls.request("Ctrl+C"))
-    threading.Thread(target=controls.poll, daemon=True).start()
-    print(f"SESSION: {directory}\nAlternative controlled stop: create {directory / 'STOP'}", flush=True)
-    try:
-        result = session.run(controls, args.max_transfers)
-    finally:
-        signal.signal(signal.SIGINT, old_handler)
-    print(f"Session ended; state and logs: {directory}", flush=True)
-    return result
+    with robot_power():
+        home = detect_home(settings, tolerance)
+        model = ask_plate_layout(home, order, seed if args.occupied or args.resume else None, resume=bool(args.resume))
+        if model is None:
+            return 1
+        print("Confirmed layout:", asdict(model))
+        if not args.confirmed and input("Confirm physical layout, payload, home, clear routes; type RUN: ").strip() != "RUN":
+            return 1
+        check_start(model.home, "tool_with_floor" if model.held else "tool_only", settings, home_tolerance_deg=tolerance)
+        directory = HERE / "results" / f"{datetime.now():%Y%m%d_%H%M%S_%f}_queue"
+        session = Session(model, settings, args.config.resolve(), directory, startup_tolerance=tolerance)
+        (directory / "transfers.csv").write_text("time,source,destination,plate\n", encoding="utf-8")
+        latest = HERE / "results/latest_queue_session.txt"
+        latest.write_text(str(directory.resolve()), encoding="utf-8")
+        controls = Controls(directory / "STOP", interval)
+        old_handler = signal.signal(signal.SIGINT, lambda signum, frame: controls.request("Ctrl+C"))
+        threading.Thread(target=controls.poll, daemon=True).start()
+        print(f"SESSION: {directory}\nAlternative controlled stop: create {directory / 'STOP'}", flush=True)
+        try:
+            result = session.run(controls, args.max_transfers)
+        finally:
+            signal.signal(signal.SIGINT, old_handler)
+        print(f"Session ended; state and logs: {directory}", flush=True)
+        return result
 
 
 if __name__ == "__main__":

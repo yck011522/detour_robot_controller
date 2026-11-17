@@ -154,9 +154,9 @@ validation note rather than adding new copies of machine/session state.
 
 `queue_cli.py` implements the experimental 12-directed-transfer coverage queue,
 separate from production scheduling and car-zone reservations. Initial layout
-is operator-confirmed through three plate-location questions. Offline preview
-defaults to A/B/C occupied, D empty. Live startup detects ac_home or bd_home from fresh stationary
-joint feedback using [queue_test].startup_home_tolerance_deg = 5 degrees per
+is operator-confirmed through three plate-location questions. Live execution is the
+default; use `--preview` for no hardware connections. Offline preview defaults to A/B/C occupied, D empty. Live startup detects ac_home or bd_home from fresh stationary
+joint feedback after automatic power-on and brake release, using [queue_test].startup_home_tolerance_deg = 5 degrees per
 joint, after the configured 0.2-second settle. It rejects no match or an ambiguous
 match; it does not move/snap the robot. Normal move arrival tolerance remains
 2 degrees. The first operation accepts the startup recognition tolerance;
@@ -172,17 +172,24 @@ loaded payload. Keep cars outside the robot work area; this test has no tokens.
 
 ```powershell
 # Offline preview of queue and first selection; no hardware connection.
-.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --preview
 
 # Live CLI: confirm physical layout and type RUN locally.
-.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py
 
 # Optional bounded acceptance run (default is unlimited until controlled stop).
-.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live --max-transfers 1
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --max-transfers 1
 
 # Resume only from a controlled home stop, after confirming physical state again.
-.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --live --resume PATH_TO_STATE_JSON
+.\.venv\Scripts\python.exe experiments/e14_robot_step_test/queue_cli.py --resume PATH_TO_STATE_JSON
 ```
+
+On exit (including startup cancellation and faults), the CLI sends Dashboard
+`stop` and `power off`, then verifies stable `POWER_OFF`. This engages the arm
+brakes and powers off the arm only; the controller remains on. Cleanup failures
+are reported and require checking the pendant. Forced process termination or
+loss of connection can prevent cleanup. Startup requires Remote Control, NORMAL
+safety, and no running program; no safety-stop reset is attempted.
 
 P toggles the admin-like pause flag. The active sub-step finishes normally;
 progression then waits before starting another sub-step. P again clears the
