@@ -79,6 +79,10 @@ def panel_theme(state):
     """Only the selected admin car gets orange/red; all others are paused grey."""
     if state.get("quit_pending"):
         return "Confirm quit", (60, 62, 67, 240)
+    if state.get("shutting_down"):
+        return "Quitting", (60, 62, 67, 240)
+    if state.get("board_startup", {}).get("robot"):
+        return "Robot startup", (65, 67, 72, 240)
     if state.get("board_startup", {}).get("active"):
         return "Confirm floorboards", (65, 67, 72, 240)
     if not state.get("admin"):
@@ -93,7 +97,7 @@ def panel_theme(state):
 def panel_action(position, state):
     """Mouse controls live on each car's own admin overlay, never a fifth panel."""
     if (not state.get("admin") or state.get("quit_pending") or state.get("capture_menu")
-            or state.get("board_startup", {}).get("active")):
+            or state.get("shutting_down") or state.get("board_startup", {}).get("active")):
         return None
     x, y = position
     if 300 <= y < 342:
@@ -109,7 +113,8 @@ def draw_panel(surface, state, camera, video_stale, font, small):
     active = camera.last_frame and now - camera.last_frame <= video_stale
     title, background = panel_theme(state)
     startup = state.get("board_startup", {})
-    admin = state.get("admin") or state.get("quit_pending") or startup.get("active")
+    admin = (state.get("admin") or state.get("quit_pending") or state.get("shutting_down")
+             or startup.get("active"))
     pygame.draw.rect(surface, background, (0, 0, surface.get_width(), 365 if admin else 100))
     white, dim = (240, 240, 245), (200, 207, 215)
 
@@ -122,6 +127,17 @@ def draw_panel(surface, state, camera, video_stale, font, small):
         line("All car driving is paused while this confirmation is open.", 108)
         line(state.get("global_status", ""), 152, dim)
         line(f"Car {state.get('car', '?')}: {state.get('feedback', 'Waiting for feedback')}", 190)
+        return
+    if state.get("shutting_down"):
+        line("Quitting: the robot is finishing and returning home", 15, large=True)
+        line("Escape: cancel and keep playing     Q then Enter: quit anyway", 60, large=True)
+        line("All car driving is paused. The application closes when the robot is home and empty.", 108)
+        line(state.get("global_status", ""), 152, dim)
+        return
+    if startup.get("active") and startup.get("robot"):
+        line("Robot startup", 12, large=True)
+        for index, text in enumerate(startup["robot"]):
+            line(text, 57 + index * 42, white if index == 0 else dim)
         return
     if startup.get("active"):
         line("Confirm physical floorboard locations", 12, large=True)
@@ -267,6 +283,7 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
                     previous_overlay_key = overlay_key
             # Admin/menu text is drawn over the visitor HUD, including pause artwork.
             panel_visible = bool(state.get("admin") or state.get("quit_pending") or state.get("capture_menu")
+                                 or state.get("shutting_down")
                                  or state.get("board_startup", {}).get("active"))
             overlay_changed = overlay_changed or panel_visible or previous_panel_visible != panel_visible
             if overlay_changed:

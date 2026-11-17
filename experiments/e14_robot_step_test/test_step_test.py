@@ -48,7 +48,7 @@ class StepTest(unittest.TestCase):
 
     def test_config_validation(self):
         original = step.DEFAULT_CONFIG.read_text()
-        for old, new in (("speed_deg_s = 5.0", "speed_deg_s = nan"),
+        for old, new in (("speed_deg_s = 10.0", "speed_deg_s = nan"),
                          ("min_accepted_upward_displacement_mm = 10.0", "min_accepted_upward_displacement_mm = 21.0"),
                          ("preserve_payload_during_operation = true", "preserve_payload_during_operation = false")):
             with tempfile.TemporaryDirectory() as folder:
@@ -101,7 +101,7 @@ class StepTest(unittest.TestCase):
                 zone_flow.validate_steps(zone_flow.build_steps("place", "c"))
 
     def test_move_profiles_and_runtime_settings_are_loaded(self):
-        for profile, expected_speed, expected_timeout in (("local", 5., 60.), ("cross_home", 10., 120.)):
+        for profile, expected_speed, expected_timeout in (("local", 10., 60.), ("cross_home", 20., 120.)):
             with self.subTest(profile=profile):
                 receiver, control, tool = MagicMock(), MagicMock(), MagicMock()
                 receiver.getActualQ.return_value = [0.]*6

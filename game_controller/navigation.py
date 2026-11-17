@@ -1,4 +1,4 @@
-"""PC-only split/merge steering with confirmed board-presence admission."""
+"""PC-only split/merge steering; zone entry requires the car's zone token."""
 
 from dataclasses import dataclass
 import math
@@ -46,18 +46,22 @@ class Navigation:
     locked: bool = False
     age_ms: int = 0
     received: float = 0
-    board_zones: frozenset = frozenset()
+    granted_zone: str = ""  # The zone token this car holds; set by the zone manager.
 
     def __post_init__(self):
         if not math.isfinite(self.lock_age_ms) or self.lock_age_ms <= 0:
             raise ValueError("split_lock_age_ms must be finite and positive")
 
     def observe(self, uid, age_ms, now, tag=None):
-        """Only called for ordered, accepted telemetry. Empty UID is no-read."""
+        """Only called for ordered, accepted telemetry. Empty UID is no-read.
+
+        Returns True when a distinct UID replaced the navigation context.
+        """
         if not uid:
             self.advance(now)
-            return
-        if uid != self.uid:
+            return False
+        changed = uid != self.uid
+        if changed:
             tag = tag or {}
             self.uid, self.tid = uid, tag.get("tid", "unknown")
             self.split = tag.get("split", "")
@@ -68,6 +72,7 @@ class Navigation:
             self.edge, self.locked = "", False
         self.age_ms, self.received = age_ms, now
         self.advance(now)
+        return changed
 
     def advance(self, now):
         # Advance the last reported age between 20 Hz telemetry samples.
@@ -84,7 +89,7 @@ class Navigation:
             return ""
         if self.locked and self.edge:
             return self.edge
-        if self.reservezone and self.reservezone not in self.board_zones:
+        if self.reservezone and self.reservezone != self.granted_zone:
             self.edge = self.safeexit
         elif not self.edge:
             # A first observation already older than the threshold has no prior
@@ -94,6 +99,13 @@ class Navigation:
         elif choose and not self.locked:
             self.edge = split_edge(self.split, left, right)
         return self.edge
+
+    def exit_input(self):
+        """The (left, right) joystick input that selects this split's safeexit."""
+        for left, right in ((False, False), (True, False), (False, True)):
+            if split_edge(self.split, left, right) == self.safeexit:
+                return left, right
+        return False, False
 
     @property
     def selected_exit(self):

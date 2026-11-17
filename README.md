@@ -8,6 +8,54 @@ Movement settings are in `config/robot_movement.ini`. Preview commands do not
 connect to hardware; live operation requires explicit operator confirmation.
 These experiments are separate from the game controller and do not acquire
 car-zone tokens. See the [2026-11-15 validation](experiments/e14_robot_step_test/VALIDATION_2026-11-15.md).
+The game controller carries its own copy of the validated primitives in
+`game_controller/robot/` and never imports from `experiments/`.
+
+## Robot in the game controller
+
+```powershell
+# Boards never move (default; no robot or tool connection is opened).
+.\.venv\Scripts\python.exe -m game_controller
+# Simulated robot: same events and timing-free steps, no connections.
+.\.venv\Scripts\python.exe -m game_controller --robot dry-run
+# Real UR10e. Supervise it; see the checklist below.
+.\.venv\Scripts\python.exe -m game_controller --robot live
+```
+
+The robot runs in its own process (`game_controller/robot/worker.py`) and keeps
+moving the three boards between zones A-D. Startup order: robot pose first, then
+the floorboard questions.
+
+1. The robot position is read (read-only). At either home it continues. Otherwise
+   the screens say so: **hold Left** to move to the AC home or **hold Right** to
+   move to the BD home (you watch the path; releasing stops it and re-checks the
+   position). **R** checks again, **Enter** runs the game without the robot,
+   **Escape** quits. The same choices appear if the robot cannot be reached.
+2. Confirm the floorboard locations. With the robot, exactly three boards are
+   active (zone or gripper) and one is spare. Without the robot a fourth board may
+   also sit in a zone, and no zone is ever closed by the robot.
+
+Zone rules (`game_controller/zones.py`): Car 1 competes for A/B and Car 2 for
+C/D; Cars 3/4 never hold tokens. The robot only claims a zone no car holds; the
+closure is published in the topology byte and the robot waits for the zone's car
+to echo a newer snapshot (absent or telemetry-silent cars owe nothing). A token is
+released by a new tag with neither `inzone` nor `reservezone`. After 10 s without
+forward input or 60 s total, a token holder is evacuated: the controller pushes
+the stick forward toward the safe exit before the normal filter and branch lock,
+so a locked choice stays locked. Evacuation and its timers do nothing in admin
+mode.
+
+Pickup order is least recently touched (`game_controller/scheduler.py`) and
+never the plate just placed; if nothing else is eligible the robot waits
+indefinitely. Entering admin mode pauses the robot at its next waypoint and
+leaving resumes it. **Q** then **Enter** finishes the transfer in progress, puts
+the robot home empty-handed and then quits (**Q** + **Enter** again quits
+immediately, as does quitting while the robot is in a fault). Faults keep the
+claimed zones closed and block further robot operations until restart.
+
+Robot logs and transcripts are written to `logs/robot/`. Joint speeds were
+doubled to 10 and 20 deg/s in `config/robot_movement.ini`; that is not yet
+validated on the robot. Protective-stop recovery is not implemented.
 
 ## Robot pose teaching
 
@@ -40,7 +88,8 @@ Monitors are selected by `monitor_text_serial`, resolved to the current SDL
 index at startup. Missing or ambiguous matches stop startup. To assign the four
 screens, close the controller and run `Calibrate Monitors.bat` in the project
 root; type the displayed letters in car 1 through car 4 order and press Enter.
-M1 does not connect to or command the UR robot or end effector.
+Without `--robot` the controller never connects to or commands the UR robot or
+end effector.
 
 The four player displays use the E13 HUD and minimap from
 `game_controller/ui_layout.py` and `game_controller/minimap.py`. Press Space to

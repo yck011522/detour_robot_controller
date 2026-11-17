@@ -28,6 +28,10 @@ stationary threshold, settling, dwell, compliance speed/orientation limits,
 forces, depths and timeouts for all four zones. [runtime] holds the existing
 receive/log/loop timings, feedback/reply deadlines, watchdog, stop decelerations
 and numeric payload-comparison tolerances. Their values are unchanged by cleanup.
+**2026-11-16:** the joint speeds in that file were doubled to 10 deg/s (local) and
+20 deg/s (cross-home) for the game controller. The validation below used 5 and 10
+deg/s, so rerunning these experiments now runs at the doubled, unvalidated speeds.
+The game controller has its own copy of these primitives in `game_controller/robot/`.
 The tool forwarder port lives in config/address.ini under robotic_arm.tool_tcp_port.
 Every action logs the effective settings. No application warning thresholds are introduced.
 
