@@ -56,7 +56,7 @@ class BoardTests(unittest.TestCase):
             stack.enter_context(patch.object(app, "CoinStore", side_effect=lambda path:
                                              store_class(Path(directory) / "coin_count.ini")))
             stack.enter_context(patch.object(app, "ask_boards_console"))
-            stack.enter_context(patch("sys.argv", ["controller", "--no-video", "--seconds", ".14"]))
+            stack.enter_context(patch("sys.argv", ["controller", "--robot", "off", "--no-video", "--seconds", ".14"]))
             for method in ("display.init", "font.init", "joystick.init", "display.set_mode", "quit"):
                 stack.enter_context(patch("game_controller.app.pygame." + method))
             stack.enter_context(patch.object(app.pygame.event, "get", side_effect=events))

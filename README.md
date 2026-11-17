@@ -14,19 +14,22 @@ The game controller carries its own copy of the validated primitives in
 ## Robot in the game controller
 
 ```powershell
-# Boards never move (default; no robot or tool connection is opened).
+# Real UR10e (default). Automatic arm startup; supervise movement.
 .\.venv\Scripts\python.exe -m game_controller
+# Boards never move; no robot or tool connection is opened.
+.\.venv\Scripts\python.exe -m game_controller --robot off
 # Simulated robot: same events and timing-free steps, no connections.
 .\.venv\Scripts\python.exe -m game_controller --robot dry-run
-# Real UR10e. Supervise it; see the checklist below.
-.\.venv\Scripts\python.exe -m game_controller --robot live
 ```
 
 The robot runs in its own process (`game_controller/robot/worker.py`) and keeps
-moving the three boards between zones A-D. Startup order: robot pose first, then
-the floorboard questions.
+moving the three boards between zones A-D. Startup order: automatic arm power-on
+and brake release, home detection, then the floorboard questions. Transfers start
+after board confirmation and leaving admin mode.
 
-1. The robot position is read (read-only). At either home it continues. Otherwise
+1. Startup requires Remote Control, NORMAL safety and no running program. It
+   waits for stable IDLE before brake release, then stable RUNNING before reading
+   position. At either home it continues. Otherwise
    the screens say so: **hold Left** to move to the AC home or **hold Right** to
    move to the BD home (you watch the path; releasing stops it and re-checks the
    position). **R** checks again, **Enter** runs the game without the robot,
@@ -52,6 +55,15 @@ leaving resumes it. **Q** then **Enter** finishes the transfer in progress, puts
 the robot home empty-handed and then quits (**Q** + **Enter** again quits
 immediately, as does quitting while the robot is in a fault). Faults keep the
 claimed zones closed and block further robot operations until restart.
+
+On quit, the robot process sends Dashboard `stop` and `power off`, then verifies
+POWER_OFF. This powers off the arm and engages its brakes; the controller stays
+on. Cleanup failures are reported. Forced termination or lost connections can
+prevent power-off.
+
+Missing-board and robot-claimed zones show their existing zone artwork on every
+minimap. Overlays update even when cars are stationary, and disappear once a
+board is present and the robot releases its claim.
 
 Robot logs and transcripts are written to `logs/robot/`. Joint speeds were
 doubled to 10 and 20 deg/s in `config/robot_movement.ini`; that is not yet

@@ -114,7 +114,7 @@ def compose_minimap(
     reserved_zones=(),
     hidden_coins=(),
 ):
-    """Compose cached static floor stacks and four cars at the fixed minimap size."""
+    """Compose floors and cars; reserved_zones draws unavailable-zone artwork on G."""
     layers = assets["layers"]
     grouped_coins = assets["grouped_coins"]
     floor_cache = assets["floor_cache"]

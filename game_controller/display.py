@@ -270,9 +270,11 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
             overlay_changed = False
             if hud is not None:
                 hud["video_present"] = bool(camera.last_frame and now - camera.last_frame <= settings["video_stale_s"])
-                map_key = (hud["car_tags"], hud.get("hidden_coins", ()))
+                unavailable_zones = hud.get("unavailable_zones", ())
+                map_key = (hud["car_tags"], hud.get("hidden_coins", ()), unavailable_zones)
                 if map_key != previous_map_tags:
                     map_surface = compose_minimap(tag_attributes, map_assets, car, hud["car_tags"],
+                                                  reserved_zones=unavailable_zones,
                                                   hidden_coins=hud.get("hidden_coins", ()))
                     previous_map_tags = map_key
                 overlay_key = (tuple(hud.items()),

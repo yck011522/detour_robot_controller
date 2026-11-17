@@ -1,8 +1,8 @@
 """Game controller main thread: HID + admin intent + World State tick at 50 Hz.
 
-With --robot live|dry-run the robot runs in its own process and moves the three
-boards around; zone tokens, the closure echo and evacuation live here. Without
-it (the default) no robot or tool connection is ever opened and boards stay put.
+By default the real robot runs in its own process and moves the three boards
+around; zone tokens, the closure echo and evacuation live here. Use --robot off
+for static boards without robot connections, or --robot dry-run for simulation.
 """
 
 import argparse
@@ -162,8 +162,8 @@ def main():
     parser.add_argument("--seconds", type=float, default=0, help="timed run; 0 waits for Q/window close")
     parser.add_argument("--stop-only", action="store_true", help="never emit driving bits, regardless of keyboard/joystick input")
     parser.add_argument("--no-video", action="store_true", help="central diagnostics only; skip camera/display processes")
-    parser.add_argument("--robot", choices=("off", "dry-run", "live"), default="off",
-                        help="off: boards never move (default); dry-run: simulated robot; live: real UR10e, "
+    parser.add_argument("--robot", choices=("off", "dry-run", "live"), default="live",
+                        help="off: boards never move; dry-run: simulated robot; live: real UR10e (default), "
                              "which moves only after the operator confirms the startup questions")
     args = parser.parse_args()
     if not math.isfinite(args.seconds) or args.seconds < 0:
@@ -277,6 +277,8 @@ def main():
                 log("ROBOT_UNAVAILABLE", reason=robot_text)
             elif name == "jog_ended":
                 redetect()
+            elif name in ("powered_off", "power_off_failed"):
+                log("ROBOT_" + name.upper(), detail=event[1:] or None)
             elif transfers is not None:
                 transfers.handle(event)
 
@@ -308,7 +310,7 @@ def main():
 
         def robot_prompt():
             if robot_phase == "detecting":
-                return ["Checking the robot position...", robot_text]
+                return ["Preparing the robot and checking its position...", robot_text]
             if robot_phase == "jogging":
                 return ["Moving the robot. Keep holding the key; release it to stop.", robot_text]
             footer = "R: check again   Enter: run without the robot   Escape: quit"
@@ -324,7 +326,7 @@ def main():
             # No visible windows in this diagnostic mode; no driving commands
             # have been submitted while its console questionnaire is open.
             if args.robot != "off":
-                deadline = time.perf_counter() + 60
+                deadline = time.perf_counter() + 90
                 while robot_phase in ("detecting", "jogging") and time.perf_counter() < deadline:
                     drain_robot_events()
                     time.sleep(.05)
@@ -608,6 +610,7 @@ def main():
             startup_snapshot = board_startup.snapshot()
             startup_snapshot["robot"] = None if robot_phase in ("ready", "disabled") else robot_prompt()
             commands, states = [], []
+            unavailable_zones = tuple(zone for zone in "ABCD" if not zones.available(zone))
             for index, car in enumerate(cars):
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
                 drive = raw
@@ -631,11 +634,11 @@ def main():
                         zone_safeexit=bool(nav.reservezone and nav.reservezone != nav.granted_zone))
                     navigation_states[index] = navigation_state
                 packet = car.packet
-                states.append({"hud": build_display_snapshot(index + 1, car, raw, visible_tags,
-                                                              tag_attributes, tick_start,
-                                                              settings["telemetry_stale_s"],
-                                                              coin_game.totals[index],
-                                                              coin_game.hidden(index + 1, tick_start)),
+                hud = build_display_snapshot(index + 1, car, raw, visible_tags,
+                                             tag_attributes, tick_start, settings["telemetry_stale_s"],
+                                             coin_game.totals[index], coin_game.hidden(index + 1, tick_start))
+                hud["unavailable_zones"] = unavailable_zones
+                states.append({"hud": hud,
                                "car": index + 1, "admin": admin, "stop_only": args.stop_only,
                                "present": car.present, "selected": selected, "raw": raw,
                                "manual": bool(admin and keyboard[4]), "quit_pending": quit_pending,
@@ -724,10 +727,18 @@ def main():
         stop.set()
         if robot_process is not None:
             robot_commands.put(("stop",))
-            robot_process.join(timeout=5)
+            # Startup can still be finishing (15s IDLE + 60s RUNNING), followed
+            # by the independent Dashboard power-off verification (60s).
+            robot_process.join(timeout=150 if args.robot == "live" else 5)
             if robot_process.is_alive():
                 log("ROBOT_PROCESS_TERMINATED", state=transfers.state if transfers else robot_phase)
                 robot_process.terminate()
+                outcome = "FAIL"
+                print("Robot shutdown timed out; arm power-off is unconfirmed. Check the pendant.", flush=True)
+            elif robot_process.exitcode not in (None, 0):
+                outcome = "FAIL"
+                print("Robot process failed; arm power-off may be unconfirmed. Check the pendant.", flush=True)
+            drain_robot_events()
             robot_commands.cancel_join_thread()
             robot_events.cancel_join_thread()
         for player in players:

@@ -69,7 +69,8 @@ def run_app(directory, argv, frames, make_car=lambda car: car, command=None, hel
     config = app.load()
     config["log_directory"] = Path(directory)
     config["settings"]["shutdown_stop_s"] = .001
-    startup = BoardStartup(Path(directory) / "board_state.ini", robot="--robot" in argv)
+    robot_mode = argv[argv.index("--robot") + 1] if "--robot" in argv else "live"
+    startup = BoardStartup(Path(directory) / "board_state.ini", robot=robot_mode != "off")
     startup.draft = dict(LAYOUT)
     counter = [0]
     topologies, modem = [], Mock()
@@ -187,6 +188,15 @@ class RobotStartupAndQuitTests(unittest.TestCase):
 
 
 class RobotLoopTests(unittest.TestCase):
+    def test_default_starts_live_robot_adapter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("game_controller.robot.live.LiveRobot", return_value=worker.DryRobot(0)) as live:
+                startup, _ = run_app(directory, ["--seconds", "30"], confirm_then_leave_admin())
+            live.assert_called_once_with()
+            self.assertTrue(startup.robot)
+            self.assertTrue(logged(directory, "ROBOT_OPERATION"))
+            self.assertEqual(logged(directory, "ROBOT_STARTED")[0]["mode"], "live")
+
     def test_dry_run_robot_moves_boards_closes_zones_and_persists_the_layout(self):
         with tempfile.TemporaryDirectory() as directory:
             startup, topologies = run_app(directory, ["--robot", "dry-run", "--seconds", "30"],
@@ -219,7 +229,7 @@ class RobotLoopTests(unittest.TestCase):
                     startup.draft = dict(full)
                 return keys_(frame, startup)
 
-            startup, topologies = run_app(directory, ["--seconds", "30"], frames)
+            startup, topologies = run_app(directory, ["--robot", "off", "--seconds", "30"], frames)
             self.assertEqual(load_board_state(startup.path), full)
             self.assertEqual({topology & 15 for topology, _ in topologies} - {0}, {0b1111})
 
@@ -242,7 +252,7 @@ class RobotLoopTests(unittest.TestCase):
             return 1
 
         with tempfile.TemporaryDirectory() as directory, patch("game_controller.zones.INACTIVITY_SECONDS", 0.0):
-            run_app(directory, ["--seconds", "30"], confirm_then_leave_admin(40),
+            run_app(directory, ["--robot", "off", "--seconds", "30"], confirm_then_leave_admin(40),
                     make_car=make_car, command=command)
         player = [entry for entry in seen if not entry[1] and entry[2] == "A"]
         self.assertTrue(player)

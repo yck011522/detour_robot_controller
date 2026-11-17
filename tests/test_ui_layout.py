@@ -142,6 +142,29 @@ class PlayerLayoutTests(unittest.TestCase):
             self.assertEqual(load_tag_attributes(Path(directory))[1]["floor"], "2")
             self.assertEqual(load_tag_attributes(Path(directory))[1]["nfc_uid"], "01020304")
 
+    def test_zone_overlays_change_and_restore_with_stationary_cars(self):
+        """Real zone artwork follows claims and missing boards, including cache reuse."""
+        from game_controller.zones import Zones
+        zones = Zones("ABCD")
+        tags = (None,) * 4
+
+        def pixels():
+            unavailable = tuple(z for z in "ABCD" if not zones.available(z))
+            image = compose_minimap(self.tag_attributes, self.map_assets, 1, tags,
+                                    reserved_zones=unavailable)
+            return pygame.image.tobytes(image, "RGBA")
+
+        initial = pixels()
+        for zone in "ABCD":
+            zones.claim(zone, 0)
+            claimed = pixels()
+            self.assertNotEqual(initial, claimed, zone)
+            zones.remove_board(zone)
+            zones.release_claim(zone)
+            self.assertEqual(claimed, pixels(), zone)
+            zones.add_board(zone)
+            self.assertEqual(initial, pixels(), zone)
+
     def test_collection_hides_coin_and_respawn_restores_map_without_movement(self):
         tags = (None,) * 4
         initial = compose_minimap(self.tag_attributes, self.map_assets, 1, tags)

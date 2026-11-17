@@ -63,6 +63,9 @@ class DryRobot:
             return self.start_home, f"Dry run at {self.start_home}"
         return None, "Dry run away from home"
 
+    def shutdown(self):
+        pass
+
     def check_start(self, pose, payload, tolerance=None):
         pass
 
@@ -203,4 +206,12 @@ def run(commands, events, mode="live", dry_step_seconds=1.0):
     except Exception as error:
         events.put(("unavailable", f"Robot setup failed: {error}"))
         return
-    Worker(commands, events, robot, transcripts).serve()
+    try:
+        Worker(commands, events, robot, transcripts).serve()
+    finally:
+        try:
+            robot.shutdown()
+            events.put(("powered_off",))
+        except Exception as error:
+            events.put(("power_off_failed", str(error)))
+            raise

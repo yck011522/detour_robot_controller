@@ -1,8 +1,30 @@
 # M1: controller, camera and admin diagnostics
 
-Implementation date: 2026-11-09. The controller runs independently of the UR and
-tool: no UR connections, motion, power commands or end-effector commands. It is
-a bench profile, not the production startup/homing/zone/board controller.
+Implementation date: 2026-11-09. The controller starts with the real robot arm
+enabled by default. Use `--robot off` for diagnostics without robot connections
+or power commands, or `--robot dry-run` for simulation.
+
+## Automatic arm startup and shutdown
+
+Run `.\.venv\Scripts\python.exe -m game_controller` to start with the real arm.
+The `--robot live` option is accepted but no longer required. Startup uses the
+E7-tested sequence: power on when needed, wait for
+three consecutive IDLE reports, release brakes, then wait for three consecutive
+RUNNING reports before detecting home. An already RUNNING arm skips power-on and
+brake release. Remote Control, NORMAL safety and no running program are required;
+the game does not reset safety stops. Preparation occurs before board confirmation;
+automatic transfers begin after board confirmation and leaving admin mode.
+
+Normal quit completes the current transfer and returns home, then sends Dashboard
+`stop` and `power off`, verifying POWER_OFF. Only the arm powers off: the controller
+stays on. Skipping the robot after startup also shuts down the arm if the game took
+control of it. Fault/exception exits attempt arm power-off without an automatic
+recovery move. Dashboard power exchanges are recorded in `logs/robot`.
+
+The application waits for startup/shutdown to finish before terminating the robot
+process. A failed shutdown is reported as FAIL with power-off unconfirmed. Forced
+termination, a controller fault or a disconnected network can prevent cleanup.
+Use `--robot dry-run` for simulated transfers without robot power commands.
 
 ## Run
 
@@ -13,10 +35,10 @@ the repository root:
 .\.venv\Scripts\python.exe -m game_controller
 
 # Automated observation: stop-only regardless of joystick/keyboard input.
-.\.venv\Scripts\python.exe -m game_controller --stop-only --seconds 30
+.\.venv\Scripts\python.exe -m game_controller --robot off --stop-only --seconds 30
 
 # Optional console diagnostics only, without camera windows.
-.\.venv\Scripts\python.exe -m game_controller --stop-only --no-video --seconds 10
+.\.venv\Scripts\python.exe -m game_controller --robot off --stop-only --no-video --seconds 10
 
 # Small direct baseline if diagnosing a transport regression.
 .\.venv\Scripts\python.exe tools/m1_connection_probe.py
@@ -32,8 +54,8 @@ the normal four-view launch; `--no-video` isolates communication diagnostics.
 
 The application starts in admin mode with all four cars Present. The admin
 **Car Present** checkbox records reservation presence: checked means present.
-It does not gate player or admin AUTO/MANUAL driving. M1 has no reservation
-scheduler yet, so this flag currently records the operator's assertion only.
+It does not gate player or admin AUTO/MANUAL driving. Presence affects zone
+reservations and whether a car must acknowledge the robot's zone closure.
 Initial values are configured in `config/game_config.ini`; disconnection never
 changes the checkbox. Cameras retry independently. Existing feedback, echo,
 device and protection checks still apply. Shutdown requires stop confirmation
@@ -111,10 +133,10 @@ the player's selected edge; NFC context and lock age continue updating in admin.
 Returning to player mode resumes its current tag rules and any retained lock.
 Existing communication, protection, stop-only, menu
 and quit gates override driving. Conflicting split/merge labels are startup
-errors. No zone reservations are implemented: a tag with `reservezone` forces
-its `safeexit` in player AUTO when its zone has no board in the confirmed startup
-layout. If a board is present, normal split selection is allowed. A locked edge
-is retained. Admin AUTO bypasses this steering override too.
+errors. A tag with `reservezone` forces its `safeexit` in player AUTO when the
+car has not been granted that zone's token. Missing boards and robot claims
+prevent token grants. A locked edge is retained. Admin AUTO bypasses this
+steering override too.
 
 The split HUD shows the effective exit, including after locking. Raw input
 indicators remain raw. `NAVIGATION` log events report UID, tag, edge, selected

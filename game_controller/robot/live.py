@@ -1,4 +1,4 @@
-"""Real UR10e adapter: read-only pose detection, held jogging, and one subprocess per step."""
+"""Real UR10e adapter: automatic arm power, pose detection, jogging and step execution."""
 
 import math
 from pathlib import Path
@@ -9,6 +9,7 @@ import time
 from . import tool as tool_protocol
 from .settings import MOVEMENT_CONFIG, ROOT, load_payload, load_poses, load_settings
 from .step import settled_matches, snapshot
+from .power import ArmPower
 
 HOMES = ("ac_home", "bd_home")
 HOME_TOLERANCE_DEG = 5.0  # Startup recognition only; movement arrival keeps its own tolerance.
@@ -19,6 +20,10 @@ class LiveRobot:
         self.config_path = Path(config_path)
         self.settings = load_settings(self.config_path)
         self.poses = load_poses()
+        self.power = ArmPower()
+
+    def shutdown(self):
+        self.power.stop()
 
     def receiver(self):
         from rtde_receive import RTDEReceiveInterface
@@ -38,6 +43,7 @@ class LiveRobot:
 
     def detect(self):
         """Return (home or None, description). Connection or state problems raise."""
+        self.power.start()
         receiver = self.receiver()
         try:
             state = self.fresh_state(receiver)
