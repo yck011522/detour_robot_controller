@@ -80,6 +80,7 @@ class VideoWindow:
             "SDL_RenderSetLogicalSize": (integer, [pointer, integer, integer]),
             "SDL_CreateTexture": (pointer, [pointer, uint, integer, integer, integer]),
             "SDL_SetTextureBlendMode": (integer, [pointer, integer]),
+            "SDL_SetTextureAlphaMod": (integer, [pointer, C.c_uint8]),
             "SDL_ComposeCustomBlendMode": (integer, [integer] * 6),
             "SDL_SetYUVConversionMode": (None, [integer]),
             "SDL_UpdateYUVTexture": (integer, [pointer, pointer, pointer, integer,
@@ -125,7 +126,8 @@ class VideoWindow:
             raise RuntimeError(self.sdl.SDL_GetError().decode(errors="replace"))
         return result
 
-    def draw(self, frame, overlay=None, recorder=None, capture_ui=True, *, overlay_changed=True):
+    def draw(self, frame, overlay=None, recorder=None, capture_ui=True, *, overlay_changed=True,
+             draw_bonus=None):
         """Share PyAV plane pointers; honor their actual pitches/padded rows."""
         if frame is not None:
             if frame.format.name not in ("yuv420p", "yuvj420p"):
@@ -166,6 +168,8 @@ class VideoWindow:
             destination = (C.c_int * 4)(0, 0, *overlay.get_size())
             self.check(self.sdl.SDL_RenderCopy(
                 self.renderer, self.overlay, None, C.byref(destination)))
+        if draw_bonus is not None:
+            draw_bonus()
         if recorder is not None and capture_ui:
             self.capture(recorder)
         self.sdl.SDL_RenderPresent(self.renderer)

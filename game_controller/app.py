@@ -198,6 +198,7 @@ def main():
     last_tick, outcome = None, "FAIL"
     model = {"connected": False, "session": 0, "error": "", "invalid_lines": 0}
     videos = {i: {"status": "Starting", "at": 0} for i in range(1, 5)}
+    coin_clips = [None] * 4
     focus_source = None
     last_buttons = None
     joystick_instance = None
@@ -508,6 +509,12 @@ def main():
                         timestamp, frame_at, decoded, corrupt, error = values
                         videos[car] = {"status": "Playing" if frame_at and timestamp - frame_at <= settings["video_stale_s"] else "Unavailable / stale",
                                        "at": timestamp, "frame_at": frame_at, "decoded": decoded, "corrupt": corrupt, "error": error}
+                    elif kind == "coin_clip_done":
+                        request, error = values
+                        if coin_clips[car - 1] == request:
+                            coin_clips[car - 1] = None
+                        if error:
+                            log("COIN_CLIP_FAILED", car=car, video_id=request[1], error=error)
                     elif kind == "capture_status":
                         path, status, error = values
                         log("CAPTURE", car=car, path=path, status=status, error=error)
@@ -563,6 +570,9 @@ def main():
                     if award is not None:
                         coin_store.submit(coin_game.totals)
                         log("COIN_COLLECTED", **award)
+                        video_id = resolver.tags[match.tid]["video_id"]
+                        if video_id and coin_clips[packet.car - 1] is None:
+                            coin_clips[packet.car - 1] = (received_at, video_id)
                 current = (packet.controller, packet.follower, packet.sensors not in (0, 255))
                 if result not in ("duplicate", "stale") and current != previous:
                     log("CAR_STATE", car=packet.car, controller=packet.controller,
@@ -612,7 +622,13 @@ def main():
                 raw = tuple(int(raw_buttons[button]) for button in config["buttons"][index])
                 drive = raw
                 nav = car.navigation
-                if not admin and zones.evacuating(index + 1):
+                # A stalled display must release its driving lock. Healthy displays
+                # report every 100 ms even when their camera is disconnected.
+                evacuating = zones.evacuating(index + 1)
+                if (admin or quit_pending or capture_menu or shutting_down or args.no_video
+                        or evacuating or tick_start - videos[index + 1]["at"] > 2):
+                    coin_clips[index] = None
+                if not admin and evacuating:
                     # As if the visitor pushed forward toward the safe exit; the normal
                     # filter and branch lock still apply afterwards.
                     left, right = nav.exit_input() if nav.reservezone and not nav.inzone else (False, False)
@@ -620,7 +636,8 @@ def main():
                 command = car.command(drive, tick_start, settings["telemetry_stale_s"], settings["echo_stale_s"],
                                       model["connected"], joystick is not None, admin, selected, index + 1,
                                       keyboard, args.stop_only or quitting or quit_pending or capture_menu
-                                      or shutting_down or not board_startup.confirmed)
+                                      or shutting_down or not board_startup.confirmed
+                                      or coin_clips[index] is not None)
                 commands.append(command)
                 navigation_state = (nav.uid, nav.edge, nav.locked)
                 if navigation_state != navigation_states[index]:
@@ -636,7 +653,8 @@ def main():
                                                               settings["telemetry_stale_s"],
                                                               coin_game.totals[index],
                                                               coin_game.hidden(index + 1, tick_start)),
-                               "car": index + 1, "admin": admin, "stop_only": args.stop_only,
+                               "car": index + 1, "coin_clip": coin_clips[index],
+                               "admin": admin, "stop_only": args.stop_only,
                                "present": car.present, "selected": selected, "raw": raw,
                                "manual": bool(admin and keyboard[4]), "quit_pending": quit_pending,
                                "capture_menu": capture_menu, "capture_car": capture_car,
