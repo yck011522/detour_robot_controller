@@ -72,7 +72,7 @@ def fake_connections(receiver_values=None):
 
 
 class StepTests(unittest.TestCase):
-    def run_step(self, args, receiver, control, tool, statuses=None, poses=None):
+    def run_step(self, args, receiver, control, tool, statuses=None, poses=None, **options):
         modules = {"rtde_receive": MagicMock(RTDEReceiveInterface=MagicMock(return_value=receiver)),
                    "rtde_control": MagicMock(RTDEControlInterface=MagicMock(return_value=control))}
         status_patch = (patch.object(step.tool_protocol, "status", side_effect=statuses) if statuses else
@@ -83,7 +83,7 @@ class StepTests(unittest.TestCase):
              patch("builtins.input", return_value="RUN"), patch.dict(sys.modules, modules), \
              patch.object(step.tool_protocol, "LineClient", return_value=tool), status_patch, \
              patch.object(step, "load_poses", return_value=poses or {"bd_home": [0.] * 6}):
-            return step.run(args)
+            return step.run(args, **options)
 
     def test_move_profiles(self):
         for profile, speed, timeout in (("local", 10., 60.), ("cross_home", 20., 120.)):
@@ -100,6 +100,38 @@ class StepTests(unittest.TestCase):
         args = step.parser().parse_args(["move", "--pose", "bd_home"])
         with self.assertRaises(ValueError):
             step.run(args)
+
+    def test_experimental_xy_hold_uses_only_z_compliance(self):
+        receiver, control, tool = fake_connections()
+
+        def status(_tool, timeout=None):
+            if tool.command.call_args.args[0] == "STOP":
+                return {"states": ["IDLE", "IDLE"], "pwm_percent": 0}
+            return {"states": ["IDLE", "STALLED"]}
+
+        args = step.parser().parse_args(["tighten", "--motor", "2", "--live"])
+        self.assertEqual(self.run_step(args, receiver, control, tool, status, xy_hold=True), 0)
+        force_call = control.forceMode.call_args.args
+        self.assertEqual(force_call[1], [0, 0, 1, 0, 0, 0])
+        self.assertEqual(force_call[4][:3], [.003, .003, .005])
+        control.forceModeStop.assert_called_once()
+        control.stopScript.assert_called_once()
+
+    def test_experimental_xy_guard_aborts_withdrawal_before_height_can_pass(self):
+        receiver, control, tool = fake_connections()
+        receiver.getActualTCPPose.side_effect = [[0.] * 6] * 3 + [[.004, 0, .021, 0, 0, 0]] * 100
+
+        def guard(state):
+            if abs(state["tcp"][0]) > .003:
+                raise RuntimeError("XY limit exceeded")
+
+        args = step.parser().parse_args(["withdraw", "--motor", "2", "--live"])
+        self.assertEqual(self.run_step(args, receiver, control, tool, xy_guard=guard), 1)
+        tool.command.assert_any_call("LOOSEN M2", "OK LOOSEN M2")
+        tool.command.assert_any_call("STOP", "OK STOP")
+        control.stopL.assert_called_once()
+        control.forceModeStop.assert_called_once()
+        control.stopScript.assert_called_once()
 
     def test_force_actions_stop_on_success_and_error(self):
         for action, states, expected, release_height in (

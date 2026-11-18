@@ -63,7 +63,8 @@ def parser():
     return result
 
 
-def run(args):
+def run(args, *, confirmed=False, xy_guard=None, xy_hold=False):
+    """Run one action; isolated experiments may supply an additional TCP guard."""
     movement = load_settings(args.config)
     joint = movement["joint_motion"]
     runtime = movement["runtime"]
@@ -75,6 +76,8 @@ def run(args):
         joint["speed_deg_s"] = movement["cross_home"]["speed_deg_s"]
         joint["timeout_seconds"] = movement["cross_home"]["timeout_seconds"]
     force_action = args.action != "move"
+    if xy_hold and not force_action:
+        raise ValueError("XY hold applies only to force actions")
     if force_action and args.motor is None:
         raise ValueError("Tighten/withdraw requires --motor 1 or 2")
     if force_action and args.payload != "keep":
@@ -102,7 +105,7 @@ def run(args):
                   matching_poses=[n for n, e in errors.items() if e <= joint["arrival_tolerance_deg"]])
         print("ONE ACTION ONLY:", vars(args))
         print("Move is a DIRECT joint leg, not an automatic route. M1: floor/tool connection. M2: floor/structure connection.")
-        if input("Confirm support, disengagement/path and payload; type RUN: ").strip() != "RUN":
+        if not confirmed and input("Confirm support, disengagement/path and payload; type RUN: ").strip() != "RUN":
             log.write("CANCELLED")
             failed = True
             return 1
@@ -126,6 +129,8 @@ def run(args):
         if not control.setWatchdog(runtime["watchdog_min_hz"]):
             raise RuntimeError("Watchdog setup failed")
         initial = snapshot(receiver)
+        if xy_guard is not None:
+            xy_guard(initial)
         start_z = initial["tcp"][2]
         started = time.monotonic()
         last_stamp, fresh_at = initial["timestamp"], started
@@ -135,8 +140,11 @@ def run(args):
             nonlocal force_attempted
             force_attempted = True
             fz = -force if args.action == "tighten" else force
-            if not control.forceMode([0.] * 6, [1, 1, 1, 0, 0, 0], [0, 0, fz, 0, 0, 0], 2,
-                                     [movement["compliance"]["translation_speed_mm_s"] / 1000] * 3 +
+            selection = [0, 0, 1, 0, 0, 0] if xy_hold else [1, 1, 1, 0, 0, 0]
+            speed = movement["compliance"]["translation_speed_mm_s"] / 1000
+            limits = [.003, .003, speed] if xy_hold else [speed] * 3
+            if not control.forceMode([0.] * 6, selection, [0, 0, fz, 0, 0, 0], 2,
+                                     limits +
                                      [math.radians(movement["compliance"]["orientation_deviation_deg"])] * 3):
                 raise RuntimeError("Force mode rejected")
 
@@ -147,7 +155,8 @@ def run(args):
         else:
             # Engagement must never begin against a position-holding arm.
             apply_force()
-            log.write("FORCE_MODE_STARTED", commanded_fz_N=-force if args.action == "tighten" else force)
+            log.write("FORCE_MODE_STARTED", commanded_fz_N=-force if args.action == "tighten" else force,
+                      xy_hold=xy_hold)
             command = f"{'TIGHTEN' if args.action == 'tighten' else 'LOOSEN'} M{args.motor}"
             tool.command(command, "OK " + command)
             started = time.monotonic()
@@ -158,6 +167,8 @@ def run(args):
             if not control.kickWatchdog():
                 raise RuntimeError("Watchdog update failed")
             data = snapshot(receiver)
+            if xy_guard is not None:
+                xy_guard(data)
             now = time.monotonic()
             if data["timestamp"] != last_stamp:
                 last_stamp, fresh_at = data["timestamp"], now
