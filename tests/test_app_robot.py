@@ -188,6 +188,20 @@ class RobotStartupAndQuitTests(unittest.TestCase):
 
 
 class RobotLoopTests(unittest.TestCase):
+    def test_score_save_failure_is_logged_without_failing_game_or_quit(self):
+        # This fixture has no car stop echoes, so its normal RESULT is FAIL.
+        # A score error must neither stop the loop nor change that result.
+        with tempfile.TemporaryDirectory() as baseline:
+            run_app(baseline, ["--robot", "off", "--seconds", "30"], confirm_then_leave_admin(40))
+            normal_result = logged(baseline, "RESULT")[-1]["outcome"]
+        with tempfile.TemporaryDirectory() as directory:
+            run_app(directory, ["--robot", "off", "--seconds", "30"], confirm_then_leave_admin(40),
+                    patches=[patch.object(app.CoinStore, "_save", side_effect=OSError("disk unavailable"))])
+            self.assertTrue(logged(directory, "COIN_SAVE_FAILED"))
+            self.assertEqual(logged(directory, "FAILURE"), [])
+            self.assertEqual(len(logged(directory, "QUIT_CONFIRMED")), 1)
+            self.assertEqual(logged(directory, "RESULT")[-1]["outcome"], normal_result)
+
     def test_default_starts_live_robot_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch("game_controller.robot.live.LiveRobot", return_value=worker.DryRobot(0)) as live:

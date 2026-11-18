@@ -574,8 +574,8 @@ def main():
                     log("NFC_UID" if result == "uid" else "TELEMETRY_STALE", car=packet.car, uid=car.uid, sequence=packet.sequence)
             if model.get("overflow") or log.failed:
                 raise RuntimeError("Diagnostic/event queue failed or overflowed; stopping driving")
-            if coin_store.error:
-                raise RuntimeError(f"Could not save coin totals: {coin_store.error}")
+            for error, totals in coin_store.drain_errors():
+                log("COIN_SAVE_FAILED", error=error, totals=totals, action="skipped; game continues")
             if tick_start - keyboard_at > settings["keyboard_stale_s"]:
                 keyboard = (False,) * 5
             if board_startup.confirmed:
@@ -759,7 +759,8 @@ def main():
                 coin_store.close()
             except Exception as error:
                 log("COIN_SAVE_FAILED", error=str(error))
-                outcome = "FAIL"
+            for error, totals in coin_store.drain_errors():
+                log("COIN_SAVE_FAILED", error=error, totals=totals, action="skipped")
         log("RESULT", outcome=outcome, generated=generated_total, skipped_ticks=skipped,
             profile=f"robot={args.robot}", stop_only=args.stop_only)
         log.close()

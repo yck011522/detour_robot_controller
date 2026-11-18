@@ -4,7 +4,9 @@ import configparser
 import math
 from pathlib import Path
 import queue
+import tempfile
 import threading
+import time
 
 
 class CoinGame:
@@ -60,7 +62,7 @@ class CoinGame:
 
 
 class CoinStore:
-    """Coalesce pending snapshots; flush the latest totals on normal shutdown."""
+    """Coalesce saves; report failures for logging and keep accepting snapshots."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -74,6 +76,7 @@ class CoinStore:
                 raise ValueError("Saved coin totals must be nonnegative")
         self.pending = queue.Queue(maxsize=1)
         self.error = None
+        self.failures = queue.SimpleQueue()
         self.thread = threading.Thread(target=self._run, name="coin-store", daemon=True)
         self.thread.start()
         self.submit(self.totals)
@@ -86,21 +89,50 @@ class CoinStore:
             pass
         self.pending.put_nowait(snapshot)
 
+    def drain_errors(self):
+        """Return each failed save once, for logging on the application thread."""
+        failures = []
+        while True:
+            try:
+                failures.append(self.failures.get_nowait())
+            except queue.Empty:
+                return failures
+
     def _run(self):
-        try:
-            while True:
-                totals = self.pending.get()
-                if totals is None:
-                    return
-                parser = configparser.ConfigParser(interpolation=None)
-                parser["coins"] = {f"car_{car}": str(total)
-                                   for car, total in enumerate(totals, 1)}
-                temporary = self.path.with_suffix(".ini.tmp")
-                with temporary.open("w", encoding="utf-8") as target:
-                    parser.write(target)
+        while True:
+            totals = self.pending.get()
+            if totals is None:
+                return
+            try:
+                self._save(totals)
+                self.error = None
+            except Exception as error:
+                self.error = error
+                self.failures.put((str(error), totals))
+                # Skip this save; later snapshots still include all earned points.
+
+    def _save(self, totals):
+        parser = configparser.ConfigParser(interpolation=None)
+        parser["coins"] = {f"car_{car}": str(total)
+                           for car, total in enumerate(totals, 1)}
+        # Unique names avoid sharing a staging file with another writer.
+        # Close it before replace: Windows cannot rename an open file.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
+                                         prefix=self.path.name + ".", suffix=".tmp",
+                                         delete=False) as target:
+            temporary = Path(target.name)
+            parser.write(target)
+        # Editors, antivirus and other readers can briefly deny replacement
+        # on Windows. Retry here, never on the game/control thread.
+        for attempt in range(21):
+            try:
                 temporary.replace(self.path)
-        except Exception as error:
-            self.error = error
+                break
+            except PermissionError:
+                if attempt == 20:
+                    # Keep the complete snapshot for manual recovery.
+                    raise
+                time.sleep(.1)
 
     def close(self):
         while self.thread.is_alive():
@@ -110,5 +142,3 @@ class CoinStore:
             except queue.Full:
                 continue
         self.thread.join()
-        if self.error:
-            raise RuntimeError(f"Could not save coin totals: {self.error}") from self.error
