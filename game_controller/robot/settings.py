@@ -43,21 +43,22 @@ def load_settings(path=MOVEMENT_CONFIG):
         "joint_motion": ("speed_deg_s", "acceleration_deg_s2", "arrival_tolerance_deg",
                          "stationary_velocity_rad_s", "settle_seconds", "step_dwell_seconds", "timeout_seconds"),
         "cross_home": ("speed_deg_s", "timeout_seconds"),
-        "compliance": ("translation_speed_mm_s", "orientation_deviation_deg"),
+        "compliance": ("translation_speed_mm_s", "orientation_deviation_deg", "axial_limit_n", "lateral_limit_n", "xy_limit_mm"),
         "tightening": ("downward_force_n", "max_downward_displacement_mm", "timeout_seconds"),
         "release": ("target_upward_displacement_mm", "min_accepted_upward_displacement_mm", "timeout_seconds"),
         "placement_release": ("upward_force_n",),
         "pickup_release": ("upward_force_n",),
-        "runtime": ("receive_hz", "loop_sleep_seconds", "sample_interval_seconds",
+        "runtime": ("ft_zero_settle_seconds", "receive_hz", "loop_sleep_seconds", "sample_interval_seconds",
                     "feedback_timeout_seconds", "tool_reply_timeout_seconds", "watchdog_min_hz",
                     "stop_joint_deceleration_rad_s2", "stop_linear_deceleration_m_s2",
                     "payload_mass_tolerance_kg", "payload_cog_tolerance_m"),
     }
+    defaults = {"axial_limit_n": 80., "lateral_limit_n": 40., "xy_limit_mm": 3.}
     values = {}
     for section, keys in required.items():
         values[section] = {}
         for key in keys:
-            value = config.getfloat(section, key)
+            value = config.getfloat(section, key, fallback=defaults[key]) if key in defaults else config.getfloat(section, key)
             zero_allowed = key in ("upward_force_n", "step_dwell_seconds")
             if not math.isfinite(value) or value < 0 or (value == 0 and not zero_allowed):
                 raise ValueError(f"Invalid setting [{section}] {key}")

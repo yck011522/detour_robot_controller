@@ -51,13 +51,15 @@ def snapshot(receiver):
 
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("action", choices=("move", "tighten", "withdraw"))
+    result.add_argument("action", choices=("move", "tighten", "withdraw", "prepare-high"))
     result.add_argument("--live", action="store_true", help="required: this commands the real robot")
     result.add_argument("--config", type=Path, default=MOVEMENT_CONFIG)
     result.add_argument("--pose", help="named destination for a single direct MoveJ")
     result.add_argument("--motor", type=int, choices=(1, 2))
     result.add_argument("--payload", choices=("tool_only", "tool_with_floor", "keep"), default="keep",
                         help="payload to apply before the action")
+    result.add_argument("--previous", choices=("tool_only", "tool_with_floor"))
+    result.add_argument("--guard", action="store_true", help="apply production MoveJ or withdrawal limits")
     result.add_argument("--profile", choices=("local", "cross_home"), default="local",
                         help="MoveJ speed/timeout profile; force actions always use local settings")
     return result
@@ -70,6 +72,16 @@ def run(args, *, confirmed=False, xy_guard=None, xy_hold=False):
     runtime = movement["runtime"]
     if not args.live:
         raise ValueError("Robot actions require --live")
+    if args.action == "prepare-high":
+        from .live import LiveRobot
+        if args.previous is None or args.payload == "keep":
+            raise ValueError("High-point preparation requires previous and next payloads")
+        if not confirmed and input("Confirm high-point payload preparation; type RUN: ").strip() != "RUN":
+            return 1
+        LiveRobot(args.config).prepare_high(args.pose, args.previous, args.payload)
+        return 0
+    if args.guard and args.action == "withdraw":
+        xy_hold = True
     if args.profile == "cross_home":
         if args.action != "move":
             raise ValueError("Cross-home profile is only valid for MoveJ")
@@ -129,8 +141,19 @@ def run(args, *, confirmed=False, xy_guard=None, xy_hold=False):
         if not control.setWatchdog(runtime["watchdog_min_hz"]):
             raise RuntimeError("Watchdog setup failed")
         initial = snapshot(receiver)
-        if xy_guard is not None:
-            xy_guard(initial)
+        def check_guard(state):
+            if args.guard:
+                fx, fy, fz = state["force"][:3]
+                lateral = math.hypot(fx, fy)
+                if abs(fz) >= movement["compliance"]["axial_limit_n"] or lateral >= movement["compliance"]["lateral_limit_n"]:
+                    raise RuntimeError(f"Force guard reached: Fz={fz:.2f} N, lateral={lateral:.2f} N")
+                if xy_hold and any(abs(state["tcp"][i] - initial["tcp"][i]) * 1000 >
+                                   movement["compliance"]["xy_limit_mm"] for i in (0, 1)):
+                    raise RuntimeError("Withdrawal exceeded XY displacement limit")
+            if xy_guard is not None:
+                xy_guard(state)
+
+        check_guard(initial)
         start_z = initial["tcp"][2]
         started = time.monotonic()
         last_stamp, fresh_at = initial["timestamp"], started
@@ -142,7 +165,8 @@ def run(args, *, confirmed=False, xy_guard=None, xy_hold=False):
             fz = -force if args.action == "tighten" else force
             selection = [0, 0, 1, 0, 0, 0] if xy_hold else [1, 1, 1, 0, 0, 0]
             speed = movement["compliance"]["translation_speed_mm_s"] / 1000
-            limits = [.003, .003, speed] if xy_hold else [speed] * 3
+            xy_limit = movement["compliance"]["xy_limit_mm"] / 1000
+            limits = [xy_limit, xy_limit, speed] if xy_hold else [speed] * 3
             if not control.forceMode([0.] * 6, selection, [0, 0, fz, 0, 0, 0], 2,
                                      limits +
                                      [math.radians(movement["compliance"]["orientation_deviation_deg"])] * 3):
@@ -167,8 +191,7 @@ def run(args, *, confirmed=False, xy_guard=None, xy_hold=False):
             if not control.kickWatchdog():
                 raise RuntimeError("Watchdog update failed")
             data = snapshot(receiver)
-            if xy_guard is not None:
-                xy_guard(data)
+            check_guard(data)
             now = time.monotonic()
             if data["timestamp"] != last_stamp:
                 last_stamp, fresh_at = data["timestamp"], now

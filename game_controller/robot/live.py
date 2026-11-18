@@ -76,6 +76,29 @@ class LiveRobot:
         finally:
             receiver.disconnect()
 
+    def prepare_high(self, pose, previous, payload):
+        """Set and verify the supported load and tare while stationary at zone-high."""
+        from rtde_control import RTDEControlInterface
+        if pose not in {f"{zone}_high" for zone in "abcd"}:
+            raise ValueError("Payload preparation requires a zone-high pose")
+        self.check_start(pose, previous)
+        settle = self.settings["runtime"]["ft_zero_settle_seconds"]
+        control = RTDEControlInterface(tool_protocol.host_from_config())
+        try:
+            if not control.setPayload(*load_payload(payload)):
+                raise RuntimeError("High-point payload update rejected")
+            time.sleep(settle)
+            if not control.zeroFtSensor():
+                raise RuntimeError("High-point FT zero rejected")
+            time.sleep(settle)
+        finally:
+            try:
+                if control.stopScript() is False:
+                    raise RuntimeError("High-point program stop unconfirmed")
+            finally:
+                control.disconnect()
+        self.check_start(pose, payload)
+
     def run_step(self, arguments, output):
         """Return the child's exit code. The child is isolated from console Ctrl+C."""
         child = subprocess.run(

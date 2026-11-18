@@ -36,19 +36,26 @@ def operation_steps(kind, target):
     if kind == "travel":
         prefix = "bd_ac" if target == "ac_home" else "ac_bd"
         names = [*(f"{prefix}_{i}" for i in range(1, 6)), target]
-        return [(f"Travel to {name}", ["move", "--pose", name, "--payload", "keep", "--profile", "cross_home"],
+        return [(f"Travel to {name}", ["move", "--pose", name, "--guard", "--profile", "cross_home"],
                  "home_reached" if name == target else None) for name in names]
     zone = target.lower()
     tightening_motor, release_motor, payload = (2, 1, "tool_only") if kind == "place" else (1, 2, "tool_with_floor")
+    previous = "tool_with_floor" if kind == "place" else "tool_only"
+    high = f"{zone}_high"
+    def prepare(before, after):
+        return ["prepare-high", "--pose", high, "--previous", before, "--payload", after]
+
     return [
-        (f"Approach {target.upper()} high", ["move", "--pose", f"{zone}_high", "--payload", "keep"], None),
-        (f"Approach {target.upper()} target", ["move", "--pose", f"{zone}_target", "--payload", "keep"], None),
+        (f"Approach {target.upper()} high", ["move", "--pose", high, "--guard"], None),
+        ("Prepare payload at high", prepare(previous, previous), None),
+        (f"Approach {target.upper()} target", ["move", "--pose", f"{zone}_target", "--guard"], None),
         ("Tighten with downward compliance", ["tighten", "--motor", str(tightening_motor), "--payload", "keep"], None),
-        ("Loosen with upward compliance", ["withdraw", "--motor", str(release_motor), "--payload", "keep"],
+        ("Loosen with upward compliance", ["withdraw", "--motor", str(release_motor), "--guard"],
          "pickup_completed" if kind == "pick" else "placement_completed"),
-        ("Update payload and retreat to high", ["move", "--pose", f"{zone}_high", "--payload", payload],
+        ("Retreat to high", ["move", "--pose", high, "--guard"], None),
+        ("Update payload at high", prepare(previous, payload),
          "high_clearance_reached"),
-        ("Return to associated home", ["move", "--pose", home_for(target), "--payload", "keep"], "home_reached"),
+        ("Return to associated home", ["move", "--pose", home_for(target), "--guard"], "home_reached"),
     ]
 
 

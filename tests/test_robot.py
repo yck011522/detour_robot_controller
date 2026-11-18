@@ -19,22 +19,22 @@ class SettingsTests(unittest.TestCase):
         errors = step.settled_matches([0.] * 6, {"wound": [6.283185307179586] + [0.] * 5})
         self.assertAlmostEqual(errors["wound"], 360.)
 
-    def test_configured_speeds_are_doubled_and_force_actions_unchanged(self):
+    def test_configured_speeds_and_compliance_forces(self):
         settings = load_settings()
         self.assertEqual((settings["joint_motion"]["speed_deg_s"], settings["cross_home"]["speed_deg_s"]), (10., 20.))
         self.assertEqual(settings["compliance"]["translation_speed_mm_s"], 5.)
         self.assertEqual(settings["tightening"]["downward_force_n"], 10.)
         self.assertEqual((settings["placement_release"]["upward_force_n"],
-                          settings["pickup_release"]["upward_force_n"]), (5., 15.))
+                          settings["pickup_release"]["upward_force_n"]), (15., 15.))
 
     def test_release_boundaries(self):
         settings = load_settings()
         for dz, elapsed, accepted in ((20, 4, True), (20.1, 4, True), (19.9, 29.9, False),
-                                      (10, 29.9, False), (10, 30, True), (15, 30, True), (20, 30, True)):
+                                      (10, 29.9, False), (20, 30, True)):
             with self.subTest(dz=dz, elapsed=elapsed):
                 self.assertEqual(force_completion("withdraw", dz, elapsed, "LOOSENING", settings, 30) is not None,
                                  accepted)
-        for dz in (9.999, 0, -10):
+        for dz in (19.999, 15, 9.999, 0, -10):
             with self.subTest(dz=dz), self.assertRaises(RuntimeError):
                 force_completion("withdraw", dz, 30, "LOOSENING", settings, 30)
 
@@ -49,7 +49,7 @@ class SettingsTests(unittest.TestCase):
     def test_config_validation(self):
         original = MOVEMENT_CONFIG.read_text()
         for old, new in (("speed_deg_s = 10.0", "speed_deg_s = nan"),
-                         ("min_accepted_upward_displacement_mm = 10.0", "min_accepted_upward_displacement_mm = 21.0"),
+                         ("min_accepted_upward_displacement_mm = 20.0", "min_accepted_upward_displacement_mm = 21.0"),
                          ("preserve_payload_during_operation = true", "preserve_payload_during_operation = false")):
             with tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / "movement.ini"
@@ -136,7 +136,7 @@ class StepTests(unittest.TestCase):
     def test_force_actions_stop_on_success_and_error(self):
         for action, states, expected, release_height in (
                 ("tighten", ["TIGHTENING", "STALLED"], 0, None), ("tighten", ["IDLE"], 1, None),
-                ("withdraw", ["STALLED"], 1, None), ("withdraw", ["LOOSENING"], 0, .015),
+                ("withdraw", ["STALLED"], 1, None), ("withdraw", ["LOOSENING"], 0, .020),
                 ("withdraw", ["LOOSENING"], 1, .009)):
             with self.subTest(action=action, states=states, height=release_height):
                 receiver, control, tool = fake_connections()
@@ -160,6 +160,35 @@ class StepTests(unittest.TestCase):
                 order = [call[0] for call in control.mock_calls + tool.mock_calls]
                 self.assertLess(order.index("forceMode"), order.index("command"))
 
+    def test_production_withdrawal_guard_precedes_release_success(self):
+        for after_tcp, after_force in (([.004, 0, .021], [0, 0, 0]),
+                                       ([0, 0, .021], [24, 32, 0]),
+                                       ([0, 0, .021], [0, 0, -80])):
+            with self.subTest(tcp=after_tcp, force=after_force):
+                receiver, control, tool = fake_connections()
+                receiver.getActualTCPPose.side_effect = [[0.] * 6] * 3 + [after_tcp + [0.] * 3] * 5
+                receiver.getActualTCPForce.side_effect = [[0.] * 6] * 3 + [after_force + [0.] * 3] * 5
+                args = step.parser().parse_args(["withdraw", "--motor", "1", "--guard", "--live"])
+                self.assertEqual(self.run_step(args, receiver, control, tool), 1)
+                force = control.forceMode.call_args.args
+                self.assertEqual(force[1], [0, 0, 1, 0, 0, 0])
+                self.assertEqual(force[2][2], 15.)
+                control.forceModeStop.assert_called_once()
+                control.stopScript.assert_called_once()
+
+    def test_high_tare_failure_stops_and_disconnects(self):
+        from game_controller.robot.live import LiveRobot
+        robot = LiveRobot()
+        control = MagicMock()
+        control.zeroFtSensor.return_value = False
+        module = MagicMock(RTDEControlInterface=MagicMock(return_value=control))
+        with patch.dict(sys.modules, {"rtde_control": module}), patch.object(robot, "check_start") as check, \
+             patch("game_controller.robot.live.time.sleep"), self.assertRaisesRegex(RuntimeError, "zero rejected"):
+            robot.prepare_high("b_high", "tool_only", "tool_with_floor")
+        check.assert_called_once_with("b_high", "tool_only")
+        control.stopScript.assert_called_once()
+        control.disconnect.assert_called_once()
+
     def test_engaged_actions_refuse_payload_changes_and_missing_motor(self):
         for argv in (["tighten", "--motor", "1", "--payload", "tool_only"], ["withdraw"]):
             with self.subTest(argv=argv), self.assertRaises(ValueError):
@@ -174,11 +203,11 @@ class OperationTests(unittest.TestCase):
                                                 ("place", ("2", "1"), "tool_only", "placement_completed")):
                 steps = worker.operation_steps(kind, zone)
                 self.assertEqual([step_[2] for step_ in steps],
-                                 [None, None, None, done, "high_clearance_reached", "home_reached"])
-                self.assertEqual(steps[2][1][:3], ["tighten", "--motor", motors[0]])
-                self.assertEqual(steps[3][1][:3], ["withdraw", "--motor", motors[1]])
-                self.assertEqual(steps[4][1][-1], payload)
-                self.assertEqual(steps[5][1][2], worker.home_for(zone))
+                                 [None, None, None, None, done, None, "high_clearance_reached", "home_reached"])
+                self.assertEqual(steps[3][1][:3], ["tighten", "--motor", motors[0]])
+                self.assertEqual(steps[4][1][:3], ["withdraw", "--motor", motors[1]])
+                self.assertEqual(steps[6][1][-1], payload)
+                self.assertEqual(steps[7][1][2], worker.home_for(zone))
                 for _, arguments, _ in steps:
                     if arguments[0] == "move":
                         self.assertIn(arguments[arguments.index("--pose") + 1], poses)
@@ -240,7 +269,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(run_worker(worker.DryRobot(0), [("operation", 1, "pick", "B", False)])[-1][0], "fault")
 
     def test_failed_step_faults_once_and_blocks_later_operations(self):
-        events = run_worker(FailingRobot(fail_at=3), [("detect",), ("operation", 1, "pick", "B", False),
+        events = run_worker(FailingRobot(fail_at=4), [("detect",), ("operation", 1, "pick", "B", False),
                                                       ("operation", 2, "pick", "D", False)])
         faults = [e for e in events if e[0] == "fault"]
         self.assertEqual([f[1] for f in faults], [1, 2])
