@@ -9,6 +9,7 @@ import av
 import pygame
 
 from .video import VideoWindow
+from .coin_clip import CoinClip
 from .capture import Recorder
 from .ui_layout import LAYOUT_SIZE, VIDEO_BLINK_SECONDS, load_layout_assets, compose_layout_overlay
 from .minimap import ASSET_DIRECTORY, load_tag_attributes, load_minimap_assets, compose_minimap
@@ -198,7 +199,7 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
     av.logging.set_level(av.logging.ERROR)
     pygame.display.init()
     pygame.font.init()
-    window = camera = recorder = None
+    window = camera = recorder = clip = None
     capture_path = None
     failed_capture = None
     local_stop = threading.Event()
@@ -216,6 +217,14 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
         video_wash.fill((128, 128, 128, settings["video_wash_alpha"]))
         video_wash = video_wash.premul_alpha()
         window = VideoWindow(car, display_index)
+        clip = CoinClip(window, ASSET_DIRECTORY / "ShortClips")
+
+        def draw_bonus():
+            request = state.get("coin_clip")
+            result = clip.draw(request, state["raw"][0])
+            if result is not None:
+                events.put_nowait(("coin_clip_done", car, request, result))
+
         surface = pygame.Surface((1920, 365), pygame.SRCALPHA)
         font, small = pygame.font.Font(None, 32), pygame.font.Font(None, 26)
         camera = Camera(url, local_stop, settings["camera_retry_s"])
@@ -299,7 +308,8 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
             previous_panel_visible = panel_visible
             try:
                 window.draw(frame, overlay, recorder, desired.get("ui", True) if desired else True,
-                            overlay_changed=overlay_changed)
+                            overlay_changed=overlay_changed,
+                            draw_bonus=draw_bonus if state.get("coin_clip") or clip.request else None)
             except Exception as error:
                 if recorder is None:
                     raise
@@ -319,6 +329,8 @@ def play(car, url, display_index, settings, snapshots, events, stop, bindings):
         if camera:
             camera.thread.join(timeout=6)
         if window:
+            if clip:
+                clip.close()
             window.close()
         pygame.quit()
         events.cancel_join_thread()

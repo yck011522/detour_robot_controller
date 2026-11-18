@@ -119,6 +119,13 @@ Adjust `silver_points`, `gold_points`, and `respawn_seconds` under `[coins]` in
 all coins are available on startup, with the saved totals retained. Stop the
 controller before editing totals.
 
+In player mode, collecting a gold coin plays its clip on that car's display
+with a fade in/out and pauses that car's driving while it plays. The `video_id`
+is zero-based: `0` selects `asset/ShortClips/Detour_Q01_1080p.mp4`, through `11`
+for Q12. Hold forward after four seconds to skip with a one-second fade-out.
+Admin mode, evacuation and quit cancel playback; a missing clip is logged and
+releases the driving lock. Other players continue independently.
+
 Player AUTO steering uses the current NFC tag's `split` and `mergeedge` labels. At a
 split, input can change the edge choice while NFC age is at most 100 ms. Above
 100 ms the last selection locks until a different UID is observed; forward
