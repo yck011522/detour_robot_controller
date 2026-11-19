@@ -134,7 +134,7 @@ def build_display_snapshot(car_number, car, raw_input, car_tags, tag_attributes,
         "battery_low": bool(packet and packet.controller == 14),
         "line_lost": bool(packet and packet.follower == 10),
         "coins": coins, "hidden_coins": tuple(hidden_coins),
-        "split": car.navigation.split if car.navigation.selected_exit else "",
+        "split": car.navigation.split,
         "selected_exit": car.navigation.selected_exit,
         "split_locked": car.navigation.locked, "video_present": False,
     }

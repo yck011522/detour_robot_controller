@@ -123,7 +123,8 @@ Regenerate the artwork after changing the generator:
 ```
 
 `asset/ui_layout/` is the output of `prepare_layout_assets` in `asset_tools.py`; regeneration overwrites
-manual edits there. Change `asset_tools.py` to preserve an artwork adjustment. Static runtime labels
+manual edits there. Change `asset_tools.py` for frame/input artwork; static split panels use
+`tools/generate_split_hud.py` and geometry in `tools/hud_sources/`. Static runtime labels
 and their positions are now in `game_controller/ui_layout.py`; theme/geometry settings are
 in that production module.
 E13 automatically rebuilds the shared minimap cache after map artwork changes.
@@ -176,7 +177,7 @@ Preview files:
 
 - [Default reference-style preview](results/layout_leftright_right.png)
 - [Stale telemetry preview](results/layout_stale.png)
-- [All six split variants](results/split_variants.png)
+- [All three static split panels](results/split_variants.png)
 - [Low-battery pause](results/layout_paused_battery_low.png)
 - [Telemetry-lost pause](results/layout_paused_telemetry_lost.png)
 - [Line-lost pause](results/layout_paused_line_lost.png)

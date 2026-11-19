@@ -16,7 +16,7 @@ from game_controller.app import build_display_snapshot
 from game_controller.minimap import ASSET_DIRECTORY, load_tag_attributes, load_minimap_assets, compose_minimap
 from game_controller.protocol import Telemetry
 from game_controller.state import Car
-from game_controller.ui_layout import load_layout_assets, compose_layout_overlay
+from game_controller.ui_layout import SPLIT_POSITION, load_layout_assets, compose_layout_overlay
 from game_controller.video import VideoWindow
 
 
@@ -180,21 +180,41 @@ class PlayerLayoutTests(unittest.TestCase):
         self.assertEqual((hud["coins"], hud["hidden_coins"]), (123, (1,)))
         self.assertEqual(self.tag_attributes[6]["video_id"], "2")
 
-    def test_split_hud_uses_effective_locked_exit(self):
+    def test_split_hud_is_static_from_tag_arrival_until_context_changes(self):
+        """Every split appears before steering and ignores input and branch locks."""
         for split in ("left", "right", "leftright"):
             self.car.navigation.observe(split, 0, 10, {"tid": "T1", "split": split})
+            hud = build_display_snapshot(1, self.car, (0, 0, 0), (None,) * 4,
+                                         self.tag_attributes, 10, .5)
+            self.assertEqual(hud["split"], split)
+            self.assertEqual(hud["selected_exit"], "")
+            artwork = self.layout_assets["images"][f"split_{split}_static"]
+            region = artwork.get_rect(topleft=SPLIT_POSITION)
+            self.assertTrue(pygame.Rect(0, 0, 1920, 1080).contains(region))
+
+            def split_pixels(snapshot):
+                overlay = compose_layout_overlay(self.layout_assets, snapshot, None, 10)
+                return pygame.image.tobytes(overlay.subsurface(region), "RGBA")
+
+            initial = split_pixels(hud)
+            hidden = split_pixels({**hud, "split": ""})
+            self.assertNotEqual(initial, hidden)
             for left, right in ((True, False), (False, False), (False, True)):
                 self.car.navigation.steering(left, right, 10)
                 hud = build_display_snapshot(1, self.car, (0, left, right), (None,) * 4,
                                              self.tag_attributes, 10, .5)
-                overlay = compose_layout_overlay(self.layout_assets, hud,
-                                                  pygame.Surface((700, 700)), 10)
-                self.assertEqual(overlay.get_size(), (1920, 1080))
+                self.assertEqual(initial, split_pixels(hud))
             self.car.navigation.steering(True, False, 10.101)
             hud = build_display_snapshot(1, self.car, (0, 1, 0), (None,) * 4,
                                          self.tag_attributes, 10.101, .5)
             self.assertTrue(hud["split_locked"])
             self.assertEqual(hud["selected_exit"], "straight" if split == "left" else "right")
+            self.assertEqual(initial, split_pixels(hud))
+            self.car.navigation.observe("ordinary", 0, 10.2, {"tid": "T2"})
+            hud = build_display_snapshot(1, self.car, (0, 0, 0), (None,) * 4,
+                                         self.tag_attributes, 10.2, .5)
+            self.assertEqual(hud["split"], "")
+            self.assertEqual(hidden, split_pixels(hud))
 
     def test_production_imports_do_not_reach_experiments(self):
         """Inspect production imports and literal runtime paths without importing experiments."""
