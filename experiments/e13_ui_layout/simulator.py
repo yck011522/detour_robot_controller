@@ -265,16 +265,16 @@ def run_experiment(snapshot=False, benchmark=False):
     RESULT_DIRECTORY.mkdir(exist_ok=True)
     background = assets["backgrounds"]["Reference image"][0]
     if snapshot or benchmark:
-        # A compact contact sheet makes all six generated panel states reviewable together.
-        contact_sheet = pygame.Surface((582, 1050))
+        # One static panel per split type; export both choices to check invariance.
+        contact_sheet = pygame.Surface((336, 1050))
         contact_sheet.fill((150, 150, 150))
         for row, (split_type, exits) in enumerate(SPLIT_EXITS.items()):
+            contact_sheet.blit(
+                assets["images"][f"split_{split_type}_static"],
+                (15, 12 + row * 350),
+                special_flags=pygame.BLEND_PREMULTIPLIED,
+            )
             for column, selected_exit in enumerate(exits):
-                contact_sheet.blit(
-                    assets["images"][f"split_{split_type}_{selected_exit}"],
-                    (15 + column * 286, 12 + row * 350),
-                    special_flags=pygame.BLEND_PREMULTIPLIED,
-                )
                 state.update(split=split_type, selected_exit=selected_exit)
                 overlay = compose_layout_overlay(assets, state, map_surface, 0)
                 screen.blit(background, (0, 0))

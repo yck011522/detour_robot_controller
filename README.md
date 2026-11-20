@@ -136,7 +136,13 @@ bypass tag-based steering, including the split lock and ordinary-tag centering.
 Player AUTO permits normal split choices into zones with a board in the confirmed
 startup layout; empty zones force `safeexit`. Branch locks remain authoritative.
 Robot/car reservations are still deferred.
-The split HUD shows the effective branch; `NAVIGATION` logs record edge and lock
+The split HUD shows static joystick instructions for the current NFC split type,
+independent of the selected or locked branch. It appears as soon as a split tag is
+recognized and clears when another tag replaces that split context.
+Regenerate its production SVGs and PNGs with `python tools/generate_split_hud.py`
+on Windows; edit that script to adjust the layout. PNG rendering uses the companion
+`tools/render_split_hud.ps1` and installed Segoe UI / Microsoft JhengHei fonts.
+Geometry sources live in `tools/hud_sources/`. `NAVIGATION` logs record edge and lock
 changes. The operator confirmed intersection behavior and the admin bypass
 work on the current setup. Broader map/car and measured timing coverage remain.
 See the [milestone audit](development_plan/PROGRESS_AUDIT_2026-11-14.md) for status

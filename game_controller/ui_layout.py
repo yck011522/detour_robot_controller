@@ -242,7 +242,7 @@ def compose_layout_overlay(assets, state, map_surface, elapsed_seconds):
     overlay.blit(sensor_strip, (795, 953), special_flags=pygame.BLEND_PREMULTIPLIED)
     if state["split"]:
         overlay.blit(
-            assets["images"][f"split_{state['split']}_{state['selected_exit']}"],
+            assets["images"][f"split_{state['split']}_static"],
             SPLIT_POSITION,
             special_flags=pygame.BLEND_PREMULTIPLIED,
         )

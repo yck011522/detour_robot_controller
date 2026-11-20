@@ -2,7 +2,7 @@
   "passed": true,
   "method": "In-memory SDL dummy driver, exported image assertions, scripted refresh callbacks; no desktop input",
   "checks": [
-    "Six valid SVG/PNG split variants, selected arrows, transparency, and 1080p exports",
+    "Three static SVG/PNG splits, orange exits, transparency, and invariant 1080p exports",
     "Orbitron exhibit title fits within the top bar",
     "Stale wheel-speed dashes, pixel-identical retained sensor pattern and battery",
     "Edits while stale are ignored; fresh telemetry accepts the latest values",
@@ -14,6 +14,6 @@
     "Video dot blinks only while simulated video is present",
     "Procedural gray sensor circles, hollow inactive centers, and no dark antialias fringe on white",
     "Native-resolution transparent pause PNGs; telemetry lost takes priority when both conditions apply",
-    "All 691 source asset/reference hashes unchanged"
+    "All 697 source asset/reference hashes unchanged"
   ]
 }

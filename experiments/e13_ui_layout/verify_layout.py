@@ -38,24 +38,25 @@ def verify_layout():
         red, green, blue, alpha = image.get_at(position)
         return red > 240 and 100 < green < 135 and blue < 50 and alpha > 200
 
-    arrow_tips = {"left": (77, 145), "straight": (133, 118), "right": (189, 145)}
+    arrow_tips = {"left": (97, 145), "straight": (153, 118), "right": (209, 145)}
     for split_type, exits in ui_layout.SPLIT_EXITS.items():
         examples = []
         for selected_exit in exits:
-            name = f"split_{split_type}_{selected_exit}"
+            name = f"split_{split_type}_static"
             vector = element_tree.parse(layout_settings.UI_ASSET_DIRECTORY / f"{name}.svg").getroot()
-            assert vector.attrib["viewBox"] == "0 0 266 326"
+            assert vector.attrib["viewBox"] == "0 0 306 326"
             panel = assets["images"][name]
-            assert panel.get_size() == (266, 326)
+            assert panel.get_size() == (306, 326)
             assert panel.get_at((0, 0)).a == 0
             assert orange_pixel(panel, arrow_tips[selected_exit]), name
             other_exit = next(direction for direction in exits if direction != selected_exit)
-            assert not orange_pixel(panel, arrow_tips[other_exit]), name
+            assert orange_pixel(panel, arrow_tips[other_exit]), name
             example = pygame.image.load(str(ui_layout.RESULT_DIRECTORY / f"layout_{split_type}_{selected_exit}.png"))
             assert example.get_size() == (1920, 1080)
             examples.append(example)
-        assert pygame.image.tobytes(examples[0], "RGB") != pygame.image.tobytes(examples[1], "RGB")
-    checks.append("Six valid SVG/PNG split variants, selected arrows, transparency, and 1080p exports")
+        region = pygame.Rect(1599, 530, 306, 326)
+        assert pygame.image.tobytes(examples[0].subsurface(region), "RGB") == pygame.image.tobytes(examples[1].subsurface(region), "RGB")
+    checks.append("Three static SVG/PNG splits, orange exits, transparency, and invariant 1080p exports")
 
     # SVG font geometry and runtime font metrics must stay inside the reference header.
     title = assets["label"]("Construction Imagined Otherwise", "orbitron", 20, (0, 0, 0))

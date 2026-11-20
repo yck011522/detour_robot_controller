@@ -2,12 +2,13 @@
 
 import base64
 import io
-import math
+import subprocess
+import sys
 import xml.etree.ElementTree as element_tree
 
 import pygame
 
-from layout_settings import (UI_ASSET_DIRECTORY, REFERENCE_BACKGROUND_PATH, REPOSITORY_DIRECTORY, FONT_PATHS, LAYOUT_SIZE, SPLIT_EXITS, EXIT_LABELS)
+from layout_settings import (UI_ASSET_DIRECTORY, REFERENCE_BACKGROUND_PATH, REPOSITORY_DIRECTORY, FONT_PATHS, LAYOUT_SIZE)
 
 
 def prepare_layout_assets():
@@ -251,132 +252,9 @@ def prepare_layout_assets():
                     ),
                 ],
             )
-    for split_type, exits in SPLIT_EXITS.items():
-        for selected_exit in exits:
-            shapes = [
-                (
-                    "rect",
-                    {
-                        "x": 0,
-                        "y": 0,
-                        "width": 266,
-                        "height": 326,
-                        "rx": 24,
-                        "fill": "#f9fafc",
-                        "opacity": 0.85,
-                    },
-                ),
-                (
-                    "polyline",
-                    {
-                        "points": "21,73 245,73",
-                        "stroke": "#c5cbd1",
-                        "stroke-width": 1.5,
-                    },
-                ),
-                (
-                    "text",
-                    {
-                        "x": 22,
-                        "y": 12,
-                        "font-size": 22,
-                        "font": "chinese",
-                        "fill": "#22262d",
-                        "text": "前方分岔",
-                    },
-                ),
-                (
-                    "text",
-                    {
-                        "x": 22,
-                        "y": 40,
-                        "font-size": 12,
-                        "fill": "#676d76",
-                        "text": "APPROACHING SPLIT",
-                    },
-                ),
-            ]
-            for direction in [
-                exit_name for exit_name in exits if exit_name != selected_exit
-            ] + [selected_exit]:
-                if direction == "straight":
-                    points = [(133, 218), (133, 117)]
-                    head = [(123, 127), (133, 117), (143, 127)]
-                else:
-                    sign = -1 if direction == "left" else 1
-                    points = [(133, 218), (133, 165)]
-                    for step in range(1, 25):
-                        angle = step / 24 * math.pi / 2
-                        points.append(
-                            (
-                                133 + sign * 20 * (1 - math.cos(angle)),
-                                165 - 20 * math.sin(angle),
-                            )
-                        )
-                    points.append((133 + sign * 56, 145))
-                    head = [
-                        (133 + sign * 46, 135),
-                        (133 + sign * 56, 145),
-                        (133 + sign * 46, 155),
-                    ]
-                color = "#ff741f" if direction == selected_exit else "#ffffff"
-                for vertices in (points, head):
-                    shapes.append(
-                        (
-                            "polyline",
-                            {
-                                "points": " ".join(
-                                    f"{horizontal:.3f},{vertical:.3f}"
-                                    for horizontal, vertical in vertices
-                                ),
-                                "stroke": color,
-                                "stroke-width": 6,
-                            },
-                        )
-                    )
-            for column, direction in enumerate(exits):
-                selected = direction == selected_exit
-                center = 79 + column * 110
-                shapes.extend(
-                    [
-                        (
-                            "rect",
-                            {
-                                "x": 24 + column * 110,
-                                "y": 247,
-                                "width": 110,
-                                "height": 63,
-                                "rx": 12,
-                                "fill": "#ff741f" if selected else "#ffffff",
-                                "opacity": 1 if selected else 0.75,
-                            },
-                        ),
-                        (
-                            "text",
-                            {
-                                "x": center,
-                                "y": 258,
-                                "font-size": 17,
-                                "font": "chinese",
-                                "text-anchor": "middle",
-                                "fill": "#ffffff" if selected else "#22262d",
-                                "text": EXIT_LABELS[direction][0],
-                            },
-                        ),
-                        (
-                            "text",
-                            {
-                                "x": center,
-                                "y": 282,
-                                "font-size": 12,
-                                "text-anchor": "middle",
-                                "fill": "#ffffff" if selected else "#676d76",
-                                "text": EXIT_LABELS[direction][1],
-                            },
-                        ),
-                    ]
-                )
-            save_vector_asset(f"split_{split_type}_{selected_exit}", (266, 326), shapes)
+    # Share the production split generator instead of recreating obsolete selections.
+    subprocess.run([sys.executable, str(REPOSITORY_DIRECTORY / "tools/generate_split_hud.py")],
+                   check=True)
 
     # Extract only the background photo from the SVG; never use the dummy minimap/HUD JPEG.
     reference = element_tree.parse(
@@ -394,6 +272,6 @@ def prepare_layout_assets():
     canvas.blit(photo, (0, -1))
     pygame.image.save(canvas, str(REFERENCE_BACKGROUND_PATH))
     print(
-        f"Generated SVG/PNG HUD artwork and six split variants in {UI_ASSET_DIRECTORY}",
+        f"Generated SVG/PNG HUD artwork and three static splits in {UI_ASSET_DIRECTORY}",
         flush=True,
     )
