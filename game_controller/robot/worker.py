@@ -76,6 +76,9 @@ class DryRobot:
     def check_start(self, pose, payload, tolerance=None):
         pass
 
+    def prepare_start(self, pose, payload, tolerance=None):
+        pass
+
     def run_step(self, arguments, output):
         output.write(f"DRY RUN {' '.join(arguments)}\n")
         time.sleep(self.step_seconds)
@@ -171,8 +174,11 @@ class Worker:
         if self.home != start:
             raise RuntimeError(f"{kind} {target} requires the robot at {start}; it is at {self.home}")
         self.wait_while_paused()
-        self.robot.check_start(start, "tool_with_floor" if loaded else "tool_only",
-                               5.0 if self.first_operation else None)
+        payload = "tool_with_floor" if loaded else "tool_only"
+        if self.first_operation:
+            self.robot.prepare_start(start, payload, 5.0)
+        else:
+            self.robot.check_start(start, payload)
         self.operations += 1
         steps = operation_steps(kind, target)
         self.home = None

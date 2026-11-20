@@ -56,16 +56,45 @@ class LiveRobot:
             return home, f"At {home} ({summary})"
         return None, f"Not at a home ({summary})"
 
+    def check_position(self, receiver, pose, tolerance=None):
+        state = self.fresh_state(receiver)
+        error = settled_matches(state["joints"], {pose: self.poses[pose]})[pose]
+        limit = tolerance or self.settings["joint_motion"]["arrival_tolerance_deg"]
+        if error > limit:
+            raise RuntimeError(f"Start requires {pose}; maximum error {error:.3f} deg")
+
+    def prepare_start(self, pose, payload, tolerance=None):
+        """Apply the operator-confirmed startup load at a stationary home."""
+        from rtde_control import RTDEControlInterface
+        if pose not in HOMES:
+            raise ValueError("Startup payload preparation requires a home pose")
+        mass, cog = load_payload(payload)
+        receiver = self.receiver()
+        control = None
+        try:
+            self.check_position(receiver, pose, tolerance)
+            control = RTDEControlInterface(tool_protocol.host_from_config())
+            if not control.setPayload(mass, cog):
+                raise RuntimeError("Startup payload update rejected")
+            time.sleep(self.settings["joint_motion"]["settle_seconds"])
+        finally:
+            try:
+                if control is not None:
+                    try:
+                        if control.stopScript() is False:
+                            raise RuntimeError("Startup payload program stop unconfirmed")
+                    finally:
+                        control.disconnect()
+            finally:
+                receiver.disconnect()
+        self.check_start(pose, payload, tolerance)
+
     def check_start(self, pose, payload, tolerance=None):
         """Recognize the starting endpoint; never infer a route from an arbitrary pose."""
         mass, cog = load_payload(payload)
         receiver = self.receiver()
         try:
-            state = self.fresh_state(receiver)
-            error = settled_matches(state["joints"], {pose: self.poses[pose]})[pose]
-            limit = tolerance or self.settings["joint_motion"]["arrival_tolerance_deg"]
-            if error > limit:
-                raise RuntimeError(f"Start requires {pose}; maximum error {error:.3f} deg")
+            self.check_position(receiver, pose, tolerance)
             runtime = self.settings["runtime"]
             actual_mass, actual_cog = receiver.getPayload(), list(receiver.getPayloadCog())
             if not math.isfinite(actual_mass) or abs(actual_mass - mass) > runtime["payload_mass_tolerance_kg"]:

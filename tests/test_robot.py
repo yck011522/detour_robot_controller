@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from game_controller.robot import step, worker
-from game_controller.robot.settings import MOVEMENT_CONFIG, force_completion, load_poses, load_settings
+from game_controller.robot.settings import MOVEMENT_CONFIG, force_completion, load_payload, load_poses, load_settings
 
 
 class SettingsTests(unittest.TestCase):
@@ -195,6 +195,74 @@ class StepTests(unittest.TestCase):
                 step.run(step.parser().parse_args([*argv, "--live"]))
 
 
+class StartupPayloadTests(unittest.TestCase):
+    def test_confirmed_load_replaces_stale_payload_and_is_verified(self):
+        from game_controller.robot.live import LiveRobot
+        for payload in ("tool_only", "tool_with_floor"):
+            with self.subTest(payload=payload):
+                robot = LiveRobot()
+                receiver, control, _ = fake_connections()
+                receiver.getActualQ.return_value = robot.poses["ac_home"]
+                receiver.getPayload.return_value = 99.0  # Stale state after reboot.
+                receiver.getPayloadCog.return_value = [0., 0., 0.]
+
+                def apply(mass, cog):
+                    receiver.getPayload.return_value = mass
+                    receiver.getPayloadCog.return_value = cog
+                    return True
+
+                control.setPayload.side_effect = apply
+                module = MagicMock(RTDEControlInterface=MagicMock(return_value=control))
+                with patch.dict(sys.modules, {"rtde_control": module}), \
+                     patch.object(robot, "receiver", return_value=receiver), \
+                     patch("game_controller.robot.live.time.sleep"):
+                    robot.prepare_start("ac_home", payload, 5.0)
+                control.setPayload.assert_called_once_with(*load_payload(payload))
+                control.moveJ.assert_not_called()
+                control.zeroFtSensor.assert_not_called()
+                control.stopScript.assert_called_once()
+                control.disconnect.assert_called_once()
+
+    def test_unsafe_moving_or_wrong_pose_does_not_change_payload(self):
+        from game_controller.robot.live import LiveRobot
+        for invalid in ("safety", "moving", "pose"):
+            with self.subTest(invalid=invalid):
+                robot = LiveRobot()
+                receiver, control, _ = fake_connections()
+                receiver.getActualQ.return_value = robot.poses["ac_home"]
+                if invalid == "safety":
+                    receiver.getSafetyMode.return_value = 9
+                elif invalid == "moving":
+                    receiver.getActualQd.return_value = [.1] * 6
+                else:
+                    receiver.getActualQ.return_value = robot.poses["c_high"]
+                module = MagicMock(RTDEControlInterface=MagicMock(return_value=control))
+                with patch.dict(sys.modules, {"rtde_control": module}), \
+                     patch.object(robot, "receiver", return_value=receiver), \
+                     patch("game_controller.robot.live.time.sleep"), self.assertRaises(RuntimeError):
+                    robot.prepare_start("ac_home", "tool_with_floor", 5.0)
+                module.RTDEControlInterface.assert_not_called()
+                receiver.disconnect.assert_called_once()
+
+    def test_rejected_or_incorrect_payload_readback_blocks_start(self):
+        from game_controller.robot.live import LiveRobot
+        for accepted in (False, True):
+            with self.subTest(accepted=accepted):
+                robot = LiveRobot()
+                receiver, control, _ = fake_connections()
+                receiver.getActualQ.return_value = robot.poses["ac_home"]
+                receiver.getPayload.return_value = 99.0
+                receiver.getPayloadCog.return_value = [0., 0., 0.]
+                control.setPayload.return_value = accepted
+                module = MagicMock(RTDEControlInterface=MagicMock(return_value=control))
+                with patch.dict(sys.modules, {"rtde_control": module}), \
+                     patch.object(robot, "receiver", return_value=receiver), \
+                     patch("game_controller.robot.live.time.sleep"), self.assertRaises(RuntimeError):
+                    robot.prepare_start("ac_home", "tool_with_floor", 5.0)
+                control.stopScript.assert_called_once()
+                control.disconnect.assert_called_once()
+
+
 class OperationTests(unittest.TestCase):
     def test_every_zone_recipe(self):
         poses = load_poses()
@@ -250,6 +318,31 @@ def run_worker(robot, script, wait=0.3):
 
 
 class WorkerTests(unittest.TestCase):
+    def test_startup_load_applied_once_before_steps_then_only_checked(self):
+        for loaded in (False, True):
+            with self.subTest(loaded=loaded):
+                robot = worker.DryRobot(0)
+                robot.prepare_start = MagicMock()
+                robot.check_start = MagicMock()
+                instance = worker.Worker(queue.Queue(), queue.Queue(), robot)
+                instance.detect()
+                instance.operate(1, "travel", "ac_home", loaded)
+                robot.prepare_start.assert_called_once_with(
+                    "bd_home", "tool_with_floor" if loaded else "tool_only", 5.0)
+                robot.check_start.assert_not_called()
+                instance.operate(2, "travel", "bd_home", loaded)
+                robot.prepare_start.assert_called_once()
+                robot.check_start.assert_called_once_with(
+                    "ac_home", "tool_with_floor" if loaded else "tool_only")
+
+    def test_startup_payload_failure_prevents_movement(self):
+        robot = worker.DryRobot(0)
+        robot.prepare_start = MagicMock(side_effect=RuntimeError("Startup payload update rejected"))
+        robot.run_step = MagicMock()
+        events = run_worker(robot, [("detect",), ("operation", 1, "place", "B", True)])
+        self.assertEqual(events[-1], ("fault", 1, "Startup payload update rejected"))
+        robot.run_step.assert_not_called()
+
     def test_detect_then_pick_and_place_emit_ordered_events(self):
         events = run_worker(worker.DryRobot(0), [
             ("detect",), ("operation", 1, "pick", "D", False), ("operation", 2, "travel", "ac_home", True),

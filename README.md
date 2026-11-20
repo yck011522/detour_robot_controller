@@ -160,6 +160,13 @@ confirm. Driving stays stopped until the layout is saved. The arrangement is
 recalled from `config/board_state.ini` but requires confirmation each launch.
 See [board startup instructions](docs/BOARD_STARTUP_GUIDE.md).
 
+Before the first automatic robot operation, the confirmed layout selects the
+startup payload: a board in `gripper` uses `robot_payload_tool_with_floor`;
+otherwise it uses `robot_payload_tool_only` from `config/game_config.ini`.
+The robot must be stationary at the recognized starting home before the mass
+and centre of gravity are applied and verified. Later operations validate the
+existing payload rather than replacing an unexpected value.
+
 Physical registrations resolve the CSV's `<a2>` etc. references using that
 layout. Navigation, minimap and coins share the mapping. Known unused board
 tags are ignored and preserve the preceding navigation/zone context.
