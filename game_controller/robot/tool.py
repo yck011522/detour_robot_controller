@@ -6,6 +6,14 @@ import time
 from .settings import ROOT, read_ini
 
 
+class CommandRejected(RuntimeError):
+    """A complete error reply, distinct from an uncertain timeout or disconnect."""
+
+    def __init__(self, command, reply):
+        super().__init__(f"{command}: {reply}")
+        self.command, self.reply = command, reply
+
+
 class LineClient:
     """One serialized request/reply stream with finite receive deadlines."""
 
@@ -14,6 +22,7 @@ class LineClient:
         self.socket = socket.create_connection((host, port), timeout=2)
         self.socket.settimeout(timeout)
         self.buffer = bytearray()
+        self.first_request = True
 
     def line(self, deadline):
         while b"\n" not in self.buffer:
@@ -32,15 +41,31 @@ class LineClient:
         return line.rstrip(b"\r").decode("ascii", errors="strict")
 
     def command(self, command, expected=None, timeout=None):
-        """Never retry a motor command: a timeout leaves its acceptance unknown."""
-        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        """Retry one explicit unknown-command rejection; never retry uncertain delivery."""
+        try:
+            return self._command_once(command, expected, timeout)
+        except CommandRejected as error:
+            if error.reply != "ERR 1 unknown command":
+                raise
+            self.log.write("TOOL_COMMAND_RETRY", port=self.port, command=command,
+                           reason=str(error), attempts_remaining=1)
+            return self._command_once(command, expected, timeout)
+
+    def _command_once(self, command, expected=None, timeout=None):
+        seconds = self.timeout if timeout is None else timeout
+        # The forwarder can accept TCP before the serial side is ready. Live
+        # probes measured about one second to the first reply after reconnect.
+        if self.first_request and timeout is None:
+            seconds = max(seconds, 1.5)
+        self.first_request = False
+        deadline = time.monotonic() + seconds
         self.log.write("TX", port=self.port, command=command)
         self.socket.settimeout(max(.001, deadline - time.monotonic()))
         self.socket.sendall((command + "\n").encode("ascii"))
         reply = self.line(deadline)
         self.log.write("RX", port=self.port, command=command, reply=reply)
         if reply.startswith("ERR ") or reply.lower().startswith(("failed", "unable", "command is not allowed")):
-            raise RuntimeError(f"{command}: {reply}")
+            raise CommandRejected(command, reply)
         if expected is not None and reply != expected:
             raise RuntimeError(f"{command}: expected {expected!r}, got {reply!r}")
         return reply
