@@ -1,2 +1,0 @@
-# Optional offline PNG/report generation; not required for robot control/tests.
-matplotlib>=3.8,<4
